@@ -94,6 +94,8 @@ curl http://127.0.0.1:8090/wallet/getnodeinfo
 ### Check current block
 ```bash
 curl http://127.0.0.1:8090/wallet/getnowblock
+
+curl -s http://127.0.0.1:8090/wallet/getnodeinfo | grep -o '"block":"[^"]*"' | grep -o 'Num:[0-9]*'
 ```
 
 ## Monitoring and Logs
