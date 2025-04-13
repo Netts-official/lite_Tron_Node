@@ -1,0 +1,172 @@
+# Скрипт развертывания облегченной полной ноды TRON
+
+## Описание
+
+Данный скрипт предназначен для автоматического развертывания облегченной полной ноды TRON на серверах Ubuntu/Debian. Скрипт выполняет следующие операции:
+
+1. Установку необходимых зависимостей
+2. Настройку Java 8 как основной версии
+3. Клонирование и сборку репозитория java-tron
+4. Автоматический поиск и загрузку последнего доступного архива базы данных для быстрого старта
+5. Создание всех конфигурационных файлов
+6. Настройку автозапуска через systemd
+7. Запуск ноды
+
+## Требования
+
+- Ubuntu 20.04/22.04 или Debian 10/11
+- Минимум 16 ГБ ОЗУ (рекомендуется 24 ГБ)
+- Минимум 500 ГБ дискового пространства (рекомендуется SSD)
+- Права root для установки
+
+## Установка
+
+### Вариант 1: Прямая установка из GitHub
+
+```bash
+# Клонируем репозиторий
+git clone https://github.com/Netts-official/lite_Tron_Node.git
+cd lite_Tron_Node
+
+# Делаем скрипт исполняемым
+chmod +x install_tron_node.py
+
+# Запускаем скрипт с правами root
+sudo python3 install_tron_node.py
+```
+
+### Вариант 2: Загрузка и запуск скрипта напрямую
+
+```bash
+# Загружаем скрипт
+wget https://raw.githubusercontent.com/Netts-official/lite_Tron_Node/main/install_tron_node.py
+
+# Делаем скрипт исполняемым
+chmod +x install_tron_node.py
+
+# Запускаем скрипт с правами root
+sudo python3 install_tron_node.py
+```
+
+## Команды для управления нодой
+
+### Проверка статуса ноды
+```bash
+systemctl status tron-node
+```
+
+### Запуск ноды
+```bash
+systemctl start tron-node
+```
+
+### Остановка ноды
+```bash
+systemctl stop tron-node
+```
+
+### Перезапуск ноды
+```bash
+systemctl restart tron-node
+```
+
+### Включение автозапуска
+```bash
+systemctl enable tron-node
+```
+
+### Проверка запущенных процессов
+```bash
+ps aux | grep [F]ullNode
+```
+
+### Проверка информации о ноде
+```bash
+curl http://127.0.0.1:8090/wallet/getnodeinfo
+```
+
+### Проверка текущего блока
+```bash
+curl http://127.0.0.1:8090/wallet/getnowblock
+```
+
+## Мониторинг и логи
+
+### Просмотр логов ноды
+```bash
+journalctl -u tron-node -f
+```
+
+### Просмотр последних 100 строк логов
+```bash
+journalctl -u tron-node -n 100
+```
+
+### Просмотр логов за последний час
+```bash
+journalctl -u tron-node --since "1 hour ago"
+```
+
+## Решение проблем
+
+### Проблема с Java версией
+
+Если возникли проблемы с версией Java, можно вручную настроить Java 8:
+
+```bash
+sudo update-alternatives --config java
+# Выберите опцию с java-8-openjdk
+
+sudo update-alternatives --config javac
+# Выберите опцию с java-8-openjdk
+```
+
+### Проблемы с компиляцией java-tron
+
+Если возникают ошибки при компиляции, связанные с отсутствием класса `javax.annotation.Generated`, добавьте следующую зависимость в файл `build.gradle`:
+
+```
+dependencies {
+    implementation 'javax.annotation:javax.annotation-api:1.3.2'
+}
+```
+
+### Проблемы с загрузкой архива базы данных
+
+Если скрипт не может автоматически найти или загрузить последний архив базы данных, вы можете:
+
+1. Посмотреть доступные бэкапы вручную:
+```bash
+curl -s http://34.86.86.229/ | grep -o 'backup[0-9]\{8\}'
+```
+
+2. Скачать архив вручную, используя последний доступный бэкап (замените XXXXXXXX на актуальную дату):
+```bash
+wget http://34.86.86.229/backupXXXXXXXX/LiteFullNode_output-directory.tgz -O /tmp/LiteFullNode_output-directory.tgz
+mkdir -p /home/java-tron/output-directory
+tar -xzf /tmp/LiteFullNode_output-directory.tgz -C /home/java-tron/output-directory
+```
+
+## Обновление ноды
+
+Для обновления ноды до последней версии:
+
+```bash
+cd /home/java-tron
+git pull
+./gradlew clean build -x test
+systemctl restart tron-node
+```
+
+## Дополнительная информация
+
+- Конфигурационный файл: `/home/java-tron/last-conf.conf`
+- Стартовый скрипт: `/home/java-tron/last-node-start.sh`
+- Директория данных: `/home/java-tron/output-directory`
+- Systemd сервис: `/etc/systemd/system/tron-node.service`
+
+## Полезные ссылки
+
+- [Официальная документация TRON](https://developers.tron.network/)
+- [GitHub репозиторий java-tron](https://github.com/tronprotocol/java-tron)
+- [TRON Explorer](https://tronscan.org/)
