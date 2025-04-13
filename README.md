@@ -40,6 +40,10 @@ sudo nohup python3 install_tron_node.py > /home/lite_Tron_Node/tron-install.log 
 ```bash
 tail -f /home/lite_Tron_Node/tron-install.log
 ```
+### Check script
+```
+ps aux | grep python
+```
 
 ### Option 2: Download and run the script directly
 
