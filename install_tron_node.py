@@ -14,7 +14,6 @@ import logging
 import json
 from datetime import datetime
 import traceback
-import atexit
 import argparse
 
 # Get absolute path of the script directory
@@ -59,16 +58,8 @@ SYSTEMD_SERVICE = "/etc/systemd/system/tron-node.service"
 VSCODE_SETTINGS_DIR = f"{TRON_DIR}/.vscode"
 VSCODE_SETTINGS_FILE = f"{VSCODE_SETTINGS_DIR}/settings.json"
 
-# Base URL for downloading archive (actual link will be determined automatically)
+# Base URL for downloading archive
 BASE_URL = "http://34.86.86.229/"
-
-# Files to clean up after installation
-CLEANUP_FILES = [
-    f"{SCRIPT_DIR}/install_tron_node.py",
-    f"{SCRIPT_DIR}/installation.log"
-]
-for i in range(10):
-    CLEANUP_FILES.append(f"{LOG_DIR}/command_*.log")
 
 def print_step(message):
     """Print installation step."""
@@ -90,97 +81,32 @@ def print_warning(message):
     logger.warning(f"WARNING: {message}")
     print(f"{YELLOW}! {message}{RESET}")
 
-def print_debug(message):
-    """Print debug information."""
-    logger.debug(message)
-
-def run_command(command, check=True, shell=False, cwd=None, log_output=True):
-    """Run command with output result and detailed logging."""
+def run_command(command, check=True, shell=False, cwd=None):
+    """Run command and return output."""
     logger.debug(f"Running command: {command}")
-    
-    # Create a file for command output logging
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    command_log_file = f"{LOG_DIR}/command_{timestamp}.log"
-    
     try:
         if isinstance(command, str) and not shell:
             command = command.split()
         
-        # Run process with output capture for logging
-        with open(command_log_file, 'w') as log_file:
-            if log_output:
-                process = subprocess.Popen(
-                    command, 
-                    cwd=cwd,
-                    shell=shell, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE, 
-                    text=True,
-                    bufsize=1  # Line buffered
-                )
-                
-                stdout_data = ""
-                stderr_data = ""
-                
-                # Process stdout
-                for line in process.stdout:
-                    stdout_data += line
-                    log_file.write(line)
-                    log_file.flush()
-                    logger.debug(f"STDOUT: {line.strip()}")
-                
-                process.stdout.close()
-                
-                # Process stderr
-                for line in process.stderr:
-                    stderr_data += line
-                    log_file.write(f"ERROR: {line}")
-                    log_file.flush()
-                    logger.debug(f"STDERR: {line.strip()}")
-                
-                process.stderr.close()
-                
-                # Wait for process to complete
-                returncode = process.wait()
-                
-                if check and returncode != 0:
-                    logger.error(f"Command failed with return code {returncode}")
-                    logger.error(f"Command stderr: {stderr_data}")
-                    print_error(f"Command failed with return code {returncode}")
-                    print(f"Stderr: {stderr_data}")
-                    print(f"Full command log: {command_log_file}")
-                    if check:
-                        sys.exit(1)
-                    return None
-                
-                logger.debug(f"Command completed successfully with return code {returncode}")
-                return stdout_data.strip()
-            else:
-                # Run without output capture for interactive commands
-                result = subprocess.run(
-                    command, 
-                    cwd=cwd,
-                    check=check, 
-                    shell=shell, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE, 
-                    text=True
-                )
-                
-                # Log result
-                log_file.write(f"STDOUT: {result.stdout}\n")
-                log_file.write(f"STDERR: {result.stderr}\n")
-                
-                logger.debug(f"Command stdout: {result.stdout}")
-                logger.debug(f"Command stderr: {result.stderr}")
-                
-                return result.stdout.strip()
+        result = subprocess.run(
+            command, 
+            cwd=cwd,
+            check=check, 
+            shell=shell, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True
+        )
+        
+        logger.debug(f"Command stdout: {result.stdout}")
+        logger.debug(f"Command stderr: {result.stderr}")
+        
+        return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         logger.error(f"Command execution error: {command}")
         logger.error(f"Stderr: {e.stderr}")
         print_error(f"Command execution error: {command}")
         print(f"Stderr: {e.stderr}")
-        print(f"Full command log: {command_log_file}")
         if check:
             sys.exit(1)
         return None
@@ -191,51 +117,6 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
         if check:
             sys.exit(1)
         return None
-
-def run_command_with_live_output(command, cwd=None, shell=True):
-    """Run command with real-time output display."""
-    logger.debug(f"Running command with live output: {command}")
-    
-    # Create a file for command output logging
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    command_log_file = f"{LOG_DIR}/command_live_{timestamp}.log"
-    logger.info(f"Command log will be saved to: {command_log_file}")
-    print(f"Command log will be saved to: {command_log_file}")
-    
-    try:
-        with open(command_log_file, 'w') as log_file:
-            process = subprocess.Popen(
-                command, 
-                cwd=cwd,
-                shell=shell, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True,
-                bufsize=1  # Line buffered
-            )
-            
-            # Read output and display in real-time
-            while True:
-                line = process.stdout.readline()
-                if not line and process.poll() is not None:
-                    break
-                if line:
-                    line = line.strip()
-                    print(f"  | {line}")
-                    log_file.write(f"{line}\n")
-                    log_file.flush()
-                    logger.debug(f"LIVE OUTPUT: {line}")
-            
-            # Get return code
-            return_code = process.wait()
-            logger.debug(f"Command completed with return code {return_code}")
-            
-            return return_code, command_log_file
-    except Exception as e:
-        logger.error(f"Error running command with live output: {str(e)}")
-        logger.error(traceback.format_exc())
-        print_error(f"Error running command: {str(e)}")
-        return 1, command_log_file
 
 def check_root():
     """Check for root privileges."""
@@ -249,463 +130,266 @@ def check_root():
 def install_dependencies():
     """Install necessary dependencies."""
     print_step("Installing necessary packages...")
-    logger.debug("Starting dependency installation")
-    
-    try:
-        # Update package lists
-        logger.debug("Updating package lists")
-        run_command("apt update")
-        
-        # Install required packages
-        logger.debug("Installing required packages")
-        run_command("apt install -y git wget curl openjdk-8-jdk maven")
-        
-        # Check installation
-        for package in ["git", "wget", "curl", "java"]:
-            version_cmd = f"{package} --version"
-            if package == "java":
-                version_cmd = "java -version"
-            
-            try:
-                version = run_command(version_cmd, check=False, shell=True)
-                logger.debug(f"{package} version: {version}")
-            except Exception as e:
-                logger.warning(f"Could not get {package} version: {str(e)}")
-        
-        print_success("Packages installed")
-        logger.debug("Dependencies installed successfully")
-    
-    except Exception as e:
-        logger.error(f"Failed to install dependencies: {str(e)}")
-        logger.error(traceback.format_exc())
-        print_error(f"Failed to install dependencies: {str(e)}")
-        sys.exit(1)
+    run_command("apt update")
+    run_command("apt install -y git wget curl openjdk-8-jdk maven")
+    print_success("Packages installed")
 
 def configure_java():
     """Configure Java 8 as the main version."""
     print_step("Configuring Java 8...")
-    logger.debug("Starting Java 8 configuration")
     
-    # Force set JAVA_HOME environment variable
+    # Set JAVA_HOME environment variable
     java_home = "/usr/lib/jvm/java-8-openjdk-amd64"
     os.environ["JAVA_HOME"] = java_home
-    logger.debug(f"Set JAVA_HOME={java_home}")
     
     # Export JAVA_HOME globally
     with open("/etc/profile.d/java.sh", "w") as f:
         f.write(f'export JAVA_HOME="{java_home}"\n')
         f.write('export PATH="$JAVA_HOME/bin:$PATH"\n')
-    logger.debug("Added JAVA_HOME to /etc/profile.d/java.sh")
     
-    # Source the file to apply changes
-    run_command("source /etc/profile.d/java.sh", shell=True, check=False)
+    # Set Java 8 as default
+    run_command("update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java", check=False)
+    run_command("update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac", check=False)
     
-    # Direct approach with update-alternatives
-    try:
-        # Set Java 8 as default
-        run_command("update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java", check=False)
-        run_command("update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac", check=False)
-        logger.debug("Set Java 8 as default using update-alternatives")
-        
-        # Verify Java 8 is set as default
-        java_version = run_command("java -version 2>&1", check=False, shell=True)
-        logger.debug(f"Java version: {java_version}")
-        
-        if "1.8" in java_version:
-            print_success("Java 8 configured as main version")
-        else:
-            print_warning("Java 8 is not set as the main version, continuing anyway")
-        
-    except Exception as e:
-        logger.error(f"Error configuring Java 8: {str(e)}")
-        logger.error(traceback.format_exc())
-        print_warning(f"Error configuring Java 8: {str(e)}")
-        print_warning("Continuing anyway, but the build might fail")
+    print_success("Java 8 configured as main version")
 
 def find_latest_backup_url():
     """Find URL of the latest available backup."""
     ARCHIVE_NAME = "LiteFullNode_output-directory.tgz"
     
     print_step("Searching for the latest available backup...")
-    logger.debug(f"Searching for latest backup at {BASE_URL}")
     
     try:
         # Get page content
-        logger.debug("Fetching base URL content")
         response = requests.get(BASE_URL)
         response.raise_for_status()
         
-        # Use regular expressions to find backup* directories
-        logger.debug("Parsing page content for backup directories")
+        # Find backup directories
         backup_dirs = re.findall(r'href="(backup\d{8})/"', response.text)
-        logger.debug(f"Found backup directories: {backup_dirs}")
         
         if not backup_dirs:
-            logger.warning("No backup directories found. Using default value.")
             print_warning("No backup directories found. Using default value.")
             return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
         
-        # Sort and take the latest (newest) backup
+        # Get latest backup
         latest_backup = sorted(backup_dirs)[-1]
-        logger.debug(f"Latest backup directory: {latest_backup}")
         print_success(f"Found latest backup: {latest_backup}")
         
-        # Form full download URL
+        # Form download URL
         download_url = f"{BASE_URL}{latest_backup}/{ARCHIVE_NAME}"
-        logger.debug(f"Full download URL: {download_url}")
         
-        # Check file availability
-        logger.debug("Checking file availability")
+        # Check availability
         test_response = requests.head(download_url)
         if test_response.status_code != 200:
-            logger.warning(f"File {download_url} is not available. Using default value.")
             print_warning(f"File {download_url} is not available. Using default value.")
             return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
         
-        logger.debug(f"File is available, status code: {test_response.status_code}")
         return download_url
     
     except Exception as e:
-        logger.error(f"Error finding latest backup: {str(e)}")
-        logger.error(traceback.format_exc())
         print_warning(f"Error finding latest backup: {str(e)}. Using default value.")
         return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
 
 def download_and_extract_db():
     """Download and extract database archive."""
     print_step("Downloading database archive...")
-    logger.debug("Starting database archive download and extraction")
+    
+    # Clean up existing output directory to avoid duplication issues
+    if os.path.exists(OUTPUT_DIR):
+        print_warning(f"Removing existing output directory at {OUTPUT_DIR}")
+        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    
+    # Create fresh output directory
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Get download URL
+    download_url = find_latest_backup_url()
+    print(f"Download URL: {download_url}")
+    
+    # Download file
+    archive_path = f"/tmp/tron_backup.tgz"
+    print(f"Downloading {download_url}...")
+    
+    run_command(f"wget -O {archive_path} {download_url}", shell=True)
+    print_success("Archive downloaded")
+    
+    # Extract archive
+    print_step("Extracting database archive...")
     
     try:
-        # Get actual download URL
-        download_url = find_latest_backup_url()
-        logger.debug(f"Download URL determined: {download_url}")
-        print(f"Download URL: {download_url}")
-        
-        # Create output directory if it doesn't exist
-        logger.debug(f"Creating output directory: {OUTPUT_DIR}")
-        if not os.path.exists(OUTPUT_DIR):
-            os.makedirs(OUTPUT_DIR)
-            logger.debug("Output directory created")
-        else:
-            logger.debug("Output directory already exists")
-        
-        # Archive file name
-        archive_name = os.path.basename(download_url)
-        archive_path = f"/tmp/{archive_name}"
-        logger.debug(f"Archive path: {archive_path}")
-        
-        # Download archive with progress indicator
-        try:
-            logger.debug(f"Starting download from {download_url}")
-            print(f"Downloading {download_url}...")
+        # Check archive structure first
+        with tarfile.open(archive_path) as tar:
+            # Get all top-level directories in archive
+            top_dirs = set()
+            for member in tar.getmembers():
+                parts = member.name.split('/')
+                if parts:
+                    top_dirs.add(parts[0])
             
-            response = requests.get(download_url, stream=True)
-            response.raise_for_status()
+            logger.debug(f"Top level directories in archive: {top_dirs}")
             
-            # Get file size if server provides it
-            total_size = int(response.headers.get('content-length', 0))
-            logger.debug(f"Total file size: {total_size} bytes")
-            
-            block_size = 8192
-            downloaded = 0
-            
-            start_time = time.time()
-            
-            with open(archive_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=block_size):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        # Show progress if total size is known
-                        if total_size > 0:
-                            elapsed_time = time.time() - start_time
-                            percent = downloaded / total_size * 100
-                            speed = downloaded / (1024 * 1024 * elapsed_time) if elapsed_time > 0 else 0
-                            
-                            # Log every 5% progress
-                            if int(percent) % 5 == 0:
-                                logger.debug(f"Download progress: {percent:.1f}% ({downloaded}/{total_size} bytes, {speed:.2f} MB/s)")
-                            
-                            done = int(50 * downloaded / total_size)
-                            progress_bar = f"[{'=' * done}{' ' * (50-done)}]"
-                            progress_text = f"{progress_bar} {downloaded}/{total_size} bytes ({percent:.1f}%, {speed:.2f} MB/s)"
-                            sys.stdout.write(f"\r{progress_text}")
-                            sys.stdout.flush()
-            
-            if total_size > 0:
-                sys.stdout.write('\n')
-            
-            download_time = time.time() - start_time
-            logger.debug(f"Download completed in {download_time:.2f} seconds")
-            print_success(f"Archive successfully downloaded in {download_time:.2f} seconds")
-        
-        except Exception as e:
-            logger.error(f"Error downloading archive: {str(e)}")
-            logger.error(traceback.format_exc())
-            print_error(f"Error downloading archive: {str(e)}")
-            sys.exit(1)
-        
-        # Extract archive
-        print_step("Extracting database archive...")
-        logger.debug(f"Extracting archive: {archive_path} to {OUTPUT_DIR}")
-        
-        try:
-            with tarfile.open(archive_path) as tar:
-                # Check for safe paths during extraction
-                logger.debug("Checking for safe paths in archive")
-                for member in tar.getmembers():
-                    if member.name.startswith(('/')) or '..' in member.name:
-                        logger.error(f"Unsafe path in archive: {member.name}")
-                        print_error(f"Unsafe path in archive: {member.name}")
-                        sys.exit(1)
+            # Check if there's a nested output-directory
+            if 'output-directory' in top_dirs:
+                print_warning("Archive contains nested output-directory, adjusting extraction path")
                 
-                # Count total number of files for progress indicator
-                total_files = len(tar.getmembers())
-                logger.debug(f"Total files in archive: {total_files}")
-                print(f"Extracting {total_files} files...")
+                # Create a temporary directory for extraction
+                tmp_extract_dir = f"/tmp/tron_extract_{int(time.time())}"
+                os.makedirs(tmp_extract_dir, exist_ok=True)
                 
-                # Extract files with progress indicator
-                start_time = time.time()
-                for i, member in enumerate(tar.getmembers(), 1):
-                    tar.extract(member, path=OUTPUT_DIR)
-                    
-                    # Log every 5% progress
-                    percent = i / total_files * 100
-                    if int(percent) % 5 == 0:
-                        logger.debug(f"Extraction progress: {percent:.1f}% ({i}/{total_files} files)")
-                    
-                    # Update progress every 100 files or on last file
-                    if i % 100 == 0 or i == total_files:
-                        progress = int(i / total_files * 100)
-                        sys.stdout.write(f"\rExtraction: {progress}% ({i}/{total_files} files)")
-                        sys.stdout.flush()
+                # Extract to temp directory
+                tar.extractall(path=tmp_extract_dir)
                 
-                sys.stdout.write('\n')
+                # Move database from nested structure to correct location
+                nested_db_path = os.path.join(tmp_extract_dir, 'output-directory', 'database')
+                if os.path.exists(nested_db_path):
+                    print(f"Moving database from {nested_db_path} to {OUTPUT_DIR}")
+                    shutil.move(nested_db_path, OUTPUT_DIR)
                 
-                extraction_time = time.time() - start_time
-                logger.debug(f"Extraction completed in {extraction_time:.2f} seconds")
-                print_success(f"Archive successfully extracted in {extraction_time:.2f} seconds")
-        
-        except Exception as e:
-            logger.error(f"Error extracting archive: {str(e)}")
-            logger.error(traceback.format_exc())
-            print_error(f"Error extracting archive: {str(e)}")
-            sys.exit(1)
-        
-        # Remove archive
-        logger.debug(f"Removing downloaded archive: {archive_path}")
-        os.remove(archive_path)
-        logger.debug("Archive file removed")
+                # Cleanup temp directory
+                shutil.rmtree(tmp_extract_dir, ignore_errors=True)
+            else:
+                # Normal extraction
+                tar.extractall(path=OUTPUT_DIR)
     
     except Exception as e:
-        logger.error(f"Error in download_and_extract_db function: {str(e)}")
-        logger.error(traceback.format_exc())
-        print_error(f"Error downloading and extracting database: {str(e)}")
-        sys.exit(1)
+        print_error(f"Error during extraction: {str(e)}")
+        logger.error(f"Extraction error: {traceback.format_exc()}")
+        
+        # Fallback to direct extraction without analysis
+        print_warning("Falling back to direct extraction")
+        run_command(f"tar -xzf {archive_path} -C {OUTPUT_DIR}", shell=True)
+    
+    print_success("Archive extracted")
+    
+    # Verify database directory exists
+    db_path = os.path.join(OUTPUT_DIR, 'database')
+    if not os.path.exists(db_path):
+        print_warning("Database directory not found at expected location. Searching...")
+        
+        # Try to find database directory
+        for root, dirs, files in os.walk(OUTPUT_DIR):
+            if 'database' in dirs:
+                src_path = os.path.join(root, 'database')
+                print(f"Found database at {src_path}, moving to correct location")
+                
+                # Remove target if it exists
+                if os.path.exists(db_path):
+                    shutil.rmtree(db_path)
+                
+                # Move to correct location
+                shutil.move(src_path, OUTPUT_DIR)
+                break
+    
+    # Remove archive
+    os.remove(archive_path)
 
 def clone_and_build_java_tron():
     """Clone and build java-tron."""
     print_step("Cloning and building java-tron...")
-    logger.debug("Starting java-tron cloning and building")
     
-    try:
-        # Check if directory exists
-        logger.debug(f"Checking if directory exists: {TRON_DIR}")
-        if os.path.exists(TRON_DIR):
-            logger.debug(f"Directory {TRON_DIR} already exists")
-            print_warning(f"Directory {TRON_DIR} already exists. Skipping cloning.")
-        else:
-            # Create directory if it doesn't exist
-            logger.debug(f"Creating directory: {TRON_DIR}")
-            os.makedirs(TRON_DIR, exist_ok=True)
-            
-            # Clone repository
-            logger.debug("Cloning java-tron repository")
-            clone_cmd = f"git clone https://github.com/tronprotocol/java-tron.git {TRON_DIR}"
-            print(f"Executing command: {clone_cmd}")
-            run_command(clone_cmd)
-            logger.debug("Repository cloning completed")
+    # Check if directory exists
+    if os.path.exists(TRON_DIR):
+        print_warning(f"Directory {TRON_DIR} already exists. Removing it for clean installation.")
+        shutil.rmtree(TRON_DIR, ignore_errors=True)
+    
+    # Create directory
+    os.makedirs(TRON_DIR, exist_ok=True)
+    
+    # Clone repository
+    run_command(f"git clone https://github.com/tronprotocol/java-tron.git {TRON_DIR}")
+    
+    # Change to directory
+    os.chdir(TRON_DIR)
+    
+    # Checkout master branch
+    run_command("git fetch")
+    run_command("git checkout -t origin/master", check=False)
+    
+    # Fix build.gradle file
+    gradle_build_file = f"{TRON_DIR}/build.gradle"
+    if os.path.exists(gradle_build_file):
+        with open(gradle_build_file, "a") as f:
+            f.write("\n\nallprojects {\n    dependencies {\n        compile 'javax.annotation:javax.annotation-api:1.3.2'\n    }\n}\n")
+    
+    # Set gradlew permissions
+    gradlew_path = f"{TRON_DIR}/gradlew"
+    if os.path.exists(gradlew_path):
+        os.chmod(gradlew_path, os.stat(gradlew_path).st_mode | stat.S_IEXEC)
+    
+    # Build project
+    print("Building java-tron (this may take 10-20 minutes)...")
+    print("Build started, output redirected to log file...")
+    
+    # Export JAVA_HOME
+    build_cmd = f"JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 ./gradlew clean build -x test"
+    build_result = subprocess.run(build_cmd, shell=True, cwd=TRON_DIR)
+    
+    # Check build success
+    if build_result.returncode != 0 or not os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
+        print_error("java-tron build failed")
         
-        # Change to directory and checkout master branch
-        logger.debug(f"Changing directory to {TRON_DIR}")
-        os.chdir(TRON_DIR)
+        # Try fallback approach
+        print_warning("Trying fallback approach...")
         
-        # Run git fetch and checkout
-        logger.debug("Fetching latest changes")
-        run_command("git fetch")
+        # Download annotation jar
+        lib_dir = f"{TRON_DIR}/lib"
+        os.makedirs(lib_dir, exist_ok=True)
+        annotation_jar = f"{lib_dir}/javax.annotation-api-1.3.2.jar"
+        run_command(f"wget -O {annotation_jar} https://repo1.maven.org/maven2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.jar", shell=True)
         
-        logger.debug("Checking out master branch")
-        checkout_result = run_command("git checkout -t origin/master", check=False)
-        logger.debug(f"Checkout result: {checkout_result}")
+        # Update build.gradle
+        with open(gradle_build_file, "a") as f:
+            f.write(f"\n\nallprojects {{\n    dependencies {{\n        compile files('{lib_dir}/javax.annotation-api-1.3.2.jar')\n    }}\n}}\n")
         
-        # Fix build.gradle file to properly add javax.annotation dependency
-        gradle_build_file = f"{TRON_DIR}/build.gradle"
-        logger.debug(f"Examining build.gradle file: {gradle_build_file}")
+        # Try build again
+        print("Retrying build with fallback approach...")
+        build_result = subprocess.run(build_cmd, shell=True, cwd=TRON_DIR)
         
-        if os.path.exists(gradle_build_file):
-            logger.debug("build.gradle file exists, checking content")
-            with open(gradle_build_file, "r") as f:
-                content = f.read()
-            
-            # Look for dependencies block
-            logger.debug("Looking for dependencies block")
-            
-            # Create a backup of the original file
-            with open(f"{gradle_build_file}.bak", "w") as f:
-                f.write(content)
-            logger.debug("Created backup of build.gradle")
-            
-            # Find all dependencies blocks - this is more robust
-            allprojects_dependencies = re.findall(r'allprojects\s*{[^}]*dependencies\s*{([^}]*)}', content, re.DOTALL)
-            logger.debug(f"Found {len(allprojects_dependencies)} allprojects dependencies blocks")
-            
-            # Check for a way to add the dependency safely
-            if allprojects_dependencies:
-                # Replace the first occurrence of dependencies within allprojects
-                new_content = content
-                for block in allprojects_dependencies:
-                    if "javax.annotation:javax.annotation-api" not in block:
-                        replacement = block + "\n    compile 'javax.annotation:javax.annotation-api:1.3.2'\n"
-                        new_content = new_content.replace(block, replacement, 1)
-                        logger.debug("Added dependency to allprojects dependencies block")
-                        break
-                
-                with open(gradle_build_file, "w") as f:
-                    f.write(new_content)
-                logger.debug("Updated build.gradle with annotation dependency")
-            else:
-                # If we can't find an appropriate block, try another approach
-                logger.debug("Could not find appropriate dependencies block, trying direct addition")
-                
-                # Try to add it directly to the end of the file
-                with open(gradle_build_file, "a") as f:
-                    f.write("\n\nallprojects {\n    dependencies {\n        compile 'javax.annotation:javax.annotation-api:1.3.2'\n    }\n}\n")
-                logger.debug("Appended dependency to build.gradle")
-        else:
-            logger.warning(f"build.gradle file not found at {gradle_build_file}")
-            print_warning("build.gradle file not found. Build may fail.")
-        
-        # Check gradlew permissions
-        logger.debug("Checking gradlew permissions")
-        gradlew_path = f"{TRON_DIR}/gradlew"
-        if os.path.exists(gradlew_path):
-            os.chmod(gradlew_path, os.stat(gradlew_path).st_mode | stat.S_IEXEC)
-            logger.debug("Set executable permission for gradlew")
-        
-        # Build project with detailed output
-        print_step("Building java-tron (this may take some time)...")
-        logger.debug("Starting java-tron build")
-        
-        # Create gradlew environment with JAVA_HOME explicitly set
-        env = os.environ.copy()
-        env["JAVA_HOME"] = "/usr/lib/jvm/java-8-openjdk-amd64"
-        logger.debug(f"Set environment JAVA_HOME={env['JAVA_HOME']}")
-
-        print("Build started, please wait (may take 10-20 minutes)...")
-        
-        # Run build with environment variables set
-        build_cmd = f"JAVA_HOME={env['JAVA_HOME']} ./gradlew clean build -x test --info --stacktrace"
-        logger.debug(f"Running build command: {build_cmd}")
-        
-        return_code, live_log_file = run_command_with_live_output(build_cmd, cwd=TRON_DIR)
-        
-        # Check build success
-        if return_code != 0 or not os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
-            logger.error(f"java-tron build failed with return code {return_code}")
-            print_error(f"java-tron build failed (error code: {return_code}).")
-            print_error(f"Check build logs: {live_log_file}")
-            
-            # Special handling for failing build - try fallback approach
-            print_warning("Trying fallback approach...")
-            logger.warning("Trying fallback approach for build")
-            
-            # Try an alternative way to add the missing annotation
-            logger.debug("Applying fallback solution for javax.annotation dependency")
-            
-            # Create a local lib directory
-            lib_dir = f"{TRON_DIR}/lib"
-            os.makedirs(lib_dir, exist_ok=True)
-            
-            # Download the javax.annotation-api jar directly
-            annotation_jar = f"{lib_dir}/javax.annotation-api-1.3.2.jar"
-            download_cmd = f"wget -O {annotation_jar} https://repo1.maven.org/maven2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.jar"
-            run_command(download_cmd, shell=True)
-            
-            # Update build.gradle to include the local jar
-            with open(gradle_build_file, "a") as f:
-                f.write(f"\n\nallprojects {{\n    dependencies {{\n        compile files('{lib_dir}/javax.annotation-api-1.3.2.jar')\n    }}\n}}\n")
-            
-            # Try build again
-            print_step("Retrying build with fallback approach...")
-            return_code, live_log_file = run_command_with_live_output(build_cmd, cwd=TRON_DIR)
-            
-            if return_code != 0 or not os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
-                logger.error("Fallback build also failed")
-                print_error("Fallback build also failed. Installation cannot continue.")
-                sys.exit(1)
-        
-        # Check for FullNode.jar file
-        if os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
-            jar_size = os.path.getsize(f"{TRON_DIR}/build/libs/FullNode.jar") // (1024 * 1024)  # MB
-            logger.debug(f"FullNode.jar found, size: {jar_size} MB")
-            print_success(f"java-tron built successfully, FullNode.jar size: {jar_size} MB")
-        else:
-            logger.error("FullNode.jar not found after build")
-            print_error("FullNode.jar not found after build.")
+        if build_result.returncode != 0 or not os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
+            print_error("Build failed again. Installation cannot continue.")
             sys.exit(1)
     
-    except Exception as e:
-        logger.error(f"Error in clone_and_build_java_tron function: {str(e)}")
-        logger.error(traceback.format_exc())
-        print_error(f"Error cloning and building java-tron: {str(e)}")
-        sys.exit(1)
+    print_success("java-tron built successfully")
 
 def setup_vscode_optimization():
-    """Set up VSCode optimization to prevent indexing the node database."""
+    """Set up VSCode optimization."""
     print_step("Setting up VSCode optimization...")
-    logger.debug("Starting VSCode optimization setup")
     
-    try:
-        # Create .vscode directory if it doesn't exist
-        os.makedirs(VSCODE_SETTINGS_DIR, exist_ok=True)
-        logger.debug(f"Created .vscode directory at {VSCODE_SETTINGS_DIR}")
-        
-        # VSCode settings to exclude database directories from indexing
-        vscode_settings = {
-            "files.watcherExclude": {
-                "**/output-directory/**": True,
-                "**/database/**": True,
-                "**/index/**": True,
-            },
-            "files.exclude": {
-                "**/output-directory/**": True,
-                "**/database/**": True,
-                "**/index/**": True,
-            },
-            "search.exclude": {
-                "**/output-directory/**": True,
-                "**/database/**": True,
-                "**/index/**": True,
-            },
-            "java.import.exclusions": [
-                "**/output-directory/**",
-                "**/database/**",
-                "**/index/**"
-            ],
-            "java.configuration.updateBuildConfiguration": "disabled",
-            "java.autobuild.enabled": false
-        }
-        
-        # Write settings file
-        with open(VSCODE_SETTINGS_FILE, "w") as f:
-            json.dump(vscode_settings, f, indent=2)
-        
-        logger.debug(f"VSCode settings created at {VSCODE_SETTINGS_FILE}")
-        print_success("VSCode optimization configured")
-        
-        # Create .gitignore to exclude large directories
-        gitignore_content = """# Node databases
+    # Create .vscode directory
+    os.makedirs(VSCODE_SETTINGS_DIR, exist_ok=True)
+    
+    # VSCode settings - Using Python True instead of JavaScript true
+    vscode_settings = {
+        "files.watcherExclude": {
+            "**/output-directory/**": True,
+            "**/database/**": True,
+            "**/index/**": True
+        },
+        "files.exclude": {
+            "**/output-directory/**": True,
+            "**/database/**": True,
+            "**/index/**": True
+        },
+        "search.exclude": {
+            "**/output-directory/**": True,
+            "**/database/**": True,
+            "**/index/**": True
+        },
+        "java.import.exclusions": [
+            "**/output-directory/**",
+            "**/database/**",
+            "**/index/**"
+        ],
+        "java.configuration.updateBuildConfiguration": "disabled",
+        "java.autobuild.enabled": False
+    }
+    
+    # Write settings file
+    with open(VSCODE_SETTINGS_FILE, "w") as f:
+        json.dump(vscode_settings, f, indent=2)
+    
+    # Create .gitignore to exclude large directories
+    gitignore_content = """# Node databases
 /output-directory/
 /database/
 /index/
@@ -720,53 +404,36 @@ def setup_vscode_optimization():
 # VSCode
 .vscode/
 """
-        # Write .gitignore
-        with open(f"{TRON_DIR}/.gitignore", "w") as f:
-            f.write(gitignore_content)
-        
-        logger.debug("Created .gitignore file")
-        
-    except Exception as e:
-        logger.error(f"Error setting up VSCode optimization: {str(e)}")
-        logger.error(traceback.format_exc())
-        print_warning(f"Error setting up VSCode optimization: {str(e)}")
-        # Continue script execution despite this error
+    # Write .gitignore
+    with open(f"{TRON_DIR}/.gitignore", "w") as f:
+        f.write(gitignore_content)
+    
+    print_success("VSCode optimization configured")
 
 def create_config_files():
-    """Create configuration files using existing config."""
+    """Create configuration files."""
     print_step("Setting up configuration files...")
-    logger.debug("Starting configuration files setup")
     
-    try:
-        # Copy existing config file if it exists in the script directory
-        src_config = f"{SCRIPT_DIR}/last-conf.conf"
-        if os.path.exists(src_config):
-            logger.debug(f"Found existing config file at {src_config}, copying to {CONFIG_FILE}")
-            shutil.copy2(src_config, CONFIG_FILE)
-            print_success("Copied existing configuration file")
-        else:
-            logger.warning(f"Config file not found at {src_config}, this may cause issues")
-            print_warning(f"Configuration file not found at {src_config}")
-            print_warning("Node may not start properly. Please ensure 'last-conf.conf' exists in the same directory as this script.")
-        
-        # Startup script content
-        logger.debug(f"Creating startup script: {START_SCRIPT}")
-        start_script_content = """#!/bin/bash
+    # Copy existing config file if it exists
+    src_config = f"{SCRIPT_DIR}/last-conf.conf"
+    if os.path.exists(src_config):
+        shutil.copy2(src_config, CONFIG_FILE)
+        print_success("Copied existing configuration file")
+    else:
+        print_warning("Configuration file not found. Please create last-conf.conf manually.")
+    
+    # Create startup script
+    start_script_content = """#!/bin/bash
 java -Xmx24g -XX:+UseConcMarkSweepGC -jar /home/java-tron/build/libs/FullNode.jar -c /home/java-tron/last-conf.conf -d /home/java-tron/output-directory/
 """
-        
-        # Write startup script
-        with open(START_SCRIPT, "w") as f:
-            f.write(start_script_content)
-        logger.debug("Startup script created")
-        
-        # Set execute permissions
-        logger.debug("Setting execute permissions for startup script")
-        os.chmod(START_SCRIPT, os.stat(START_SCRIPT).st_mode | stat.S_IEXEC)
-        
-        # Create systemd service content
-        logger.debug(f"Creating systemd service file: {SYSTEMD_SERVICE}")
-        systemd_service_content = """[Unit]
+    with open(START_SCRIPT, "w") as f:
+        f.write(start_script_content)
+    
+    # Set execute permissions
+    os.chmod(START_SCRIPT, os.stat(START_SCRIPT).st_mode | stat.S_IEXEC)
+    
+    # Create systemd service
+    systemd_service_content = """[Unit]
 Description=TRON Full Node
 After=network.target
 
@@ -782,22 +449,197 @@ LimitNOFILE=500000
 [Install]
 WantedBy=multi-user.target
 """
+    with open(SYSTEMD_SERVICE, "w") as f:
+        f.write(systemd_service_content)
+    
+    # Create README.md
+    readme_path = f"{TRON_DIR}/README.md"
+    with open(readme_path, "w") as f:
+        f.write("# TRON Lite Full Node\n\n")
+        f.write("Node was automatically installed via installation script.\n\n")
+        f.write("## Basic Commands\n\n")
+        f.write("### Check Node Status\n```bash\nsystemctl status tron-node\n```\n\n")
+        f.write("### Start Node\n```bash\nsystemctl start tron-node\n```\n\n")
+        f.write("### Stop Node\n```bash\nsystemctl stop tron-node\n```\n\n")
+        f.write("### Restart Node\n```bash\nsystemctl restart tron-node\n```\n\n")
+        f.write("### Check Running Processes\n```bash\nps aux | grep [F]ullNode\n```\n\n")
+        f.write("### Check Node Information\n```bash\ncurl http://127.0.0.1:8090/wallet/getnodeinfo\n```\n\n")
+        f.write("### Check Current Block\n```bash\ncurl http://127.0.0.1:8090/wallet/getnowblock\n```\n\n")
+        f.write("### View Logs\n```bash\njournalctl -u tron-node -f\n```\n\n")
+        f.write("### Manual Node Start (if needed)\n```bash\ncd /home/java-tron\nchmod +x last-node-start.sh\nnohup bash last-node-start.sh &> /dev/null &\n```\n")
+    
+    print_success("Configuration files created")
+
+def setup_systemd():
+    """Configure autostart via systemd."""
+    print_step("Setting up autostart via systemd...")
+    
+    # Reload systemd
+    run_command("systemctl daemon-reload")
+    
+    # Enable autostart
+    run_command("systemctl enable tron-node")
+    
+    print_success("Autostart configured")
+
+def start_node():
+    """Start the node."""
+    print_step("Starting TRON node...")
+    
+    # Start service
+    run_command("systemctl start tron-node")
+    
+    # Wait for startup
+    time.sleep(5)
+    
+    # Check status
+    status = run_command("systemctl is-active tron-node", check=False)
+    
+    if status == "active":
+        print_success("TRON node started successfully!")
+    else:
+        print_warning("TRON node is starting, check status in a few minutes.")
+    
+    # Node will continue to run in background
+
+def cleanup_installation_files():
+    """Clean up installation files."""
+    print_step("Cleaning up installation files...")
+    
+    # Files to clean up
+    cleanup_files = [
+        f"{SCRIPT_DIR}/install_tron_node.py",
+        f"{SCRIPT_DIR}/installation.log",
+        f"{SCRIPT_DIR}/install.py",
+        f"{SCRIPT_DIR}/fixed_installer.py",
+        f"{SCRIPT_DIR}/working-installer.py"
+    ]
+    
+    # Remove each file if it exists
+    for file_path in cleanup_files:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.debug(f"Removed file: {file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove file {file_path}: {str(e)}")
+    
+    # Move logs to permanent location
+    try:
+        src_log = LOG_FILE
+        dst_log = "/var/log/tron-installation.log"
+        if os.path.exists(src_log):
+            shutil.copy2(src_log, dst_log)
+    except Exception as e:
+        print_warning(f"Failed to move log file: {str(e)}")
+    
+    print_success("Installation files cleaned up")
+
+def run_as_daemon():
+    """Fork the process and run in background."""
+    print("Starting TRON node installation in background mode...")
+    
+    try:
+        # Double fork to prevent zombie processes
+        pid = os.fork()
+        if pid > 0:  # First parent
+            # Exit first parent
+            sys.exit(0)
+    except OSError as e:
+        print_error(f"Fork #1 failed: {e}")
+        sys.exit(1)
+    
+    # Decouple from parent environment
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+    
+    try:
+        # Second fork
+        pid = os.fork()
+        if pid > 0:  # Second parent
+            # Exit second parent
+            print(f"Daemon process started with PID {pid}")
+            print("Installation will continue in background.")
+            print("Check progress with: tail -f /var/log/tron-background-install.log")
+            sys.exit(0)
+    except OSError as e:
+        print_error(f"Fork #2 failed: {e}")
+        sys.exit(1)
+    
+    # Redirect standard file descriptors
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
+    with open('/var/log/tron-background-install.log', 'a+') as log:
+        os.dup2(log.fileno(), sys.stdout.fileno())
+        os.dup2(log.fileno(), sys.stderr.fileno())
+
+def main():
+    """Main installation function."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="TRON Lite Full Node Installer")
+    parser.add_argument("--background", action="store_true", help="Continue installation in background mode")
+    args = parser.parse_args()
+    
+    # If background flag is specified, run as daemon
+    if args.background and os.environ.get("TRON_DAEMON") != "1":
+        os.environ["TRON_DAEMON"] = "1"
+        run_as_daemon()
+        return
+    
+    try:
+        start_time = time.time()
+        print(f"{GREEN}===========================================")
+        print(f"   TRON Lite Full Node Installation   ")
+        print(f"==========================================={RESET}")
         
-        # Write systemd service
-        with open(SYSTEMD_SERVICE, "w") as f:
-            f.write(systemd_service_content)
-        logger.debug("Systemd service file created")
+        # Check root
+        check_root()
         
-        # Create README.md
-        logger.debug("Creating README.md file")
-        readme_content = """# TRON Lite Full Node
+        # Install dependencies
+        install_dependencies()
+        
+        # Configure Java
+        configure_java()
+        
+        # Clone and build java-tron
+        clone_and_build_java_tron()
+        
+        # Configure VSCode
+        setup_vscode_optimization()
+        
+        # Create config files
+        create_config_files()
+        
+        # Download and extract database
+        download_and_extract_db()
+        
+        # Setup systemd
+        setup_systemd()
+        
+        # Start node
+        start_node()
+        
+        # Cleanup
+        cleanup_installation_files()
+        
+        end_time = time.time()
+        installation_time = end_time - start_time
+        
+        print(f"\n{GREEN}===========================================")
+        print(f"   TRON Lite Full Node successfully installed!   ")
+        print(f"==========================================={RESET}")
+        print(f"\nDocumentation: {TRON_DIR}/README.md")
+        print(f"Installation log: /var/log/tron-installation.log")
+        print(f"Check status: systemctl status tron-node")
+        print(f"View logs: journalctl -u tron-node -f")
+        print(f"Installation completed in {installation_time:.2f} seconds")
+        
+    except Exception as e:
+        print_error(f"Critical error during installation: {str(e)}")
+        logger.error(f"Critical error: {traceback.format_exc()}")
+        sys.exit(1)
 
-## Installation
-
-Node was automatically installed via installation script.
-
-## Basic Commands
-
-### Check Node Status
-```bash
-systemctl status tron-node
+if __name__ == "__main__":
+    main()
