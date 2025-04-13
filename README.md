@@ -33,6 +33,7 @@ chmod +x install_tron_node.py
 
 # Run the script with root privileges
 sudo python3 install_tron_node.py
+sudo python3 install_tron_node.py --background
 ```
 
 ### Option 2: Download and run the script directly
