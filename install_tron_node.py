@@ -661,6 +661,77 @@ def clone_and_build_java_tron():
         print_error(f"Error cloning and building java-tron: {str(e)}")
         sys.exit(1)
 
+def setup_vscode_optimization():
+    """Set up VSCode optimization to prevent indexing the node database."""
+    print_step("Setting up VSCode optimization...")
+    logger.debug("Starting VSCode optimization setup")
+    
+    try:
+        # Create .vscode directory if it doesn't exist
+        os.makedirs(VSCODE_SETTINGS_DIR, exist_ok=True)
+        logger.debug(f"Created .vscode directory at {VSCODE_SETTINGS_DIR}")
+        
+        # VSCode settings to exclude database directories from indexing
+        vscode_settings = {
+            "files.watcherExclude": {
+                "**/output-directory/**": True,
+                "**/database/**": True,
+                "**/index/**": True,
+            },
+            "files.exclude": {
+                "**/output-directory/**": True,
+                "**/database/**": True,
+                "**/index/**": True,
+            },
+            "search.exclude": {
+                "**/output-directory/**": True,
+                "**/database/**": True,
+                "**/index/**": True,
+            },
+            "java.import.exclusions": [
+                "**/output-directory/**",
+                "**/database/**",
+                "**/index/**"
+            ],
+            "java.configuration.updateBuildConfiguration": "disabled",
+            "java.autobuild.enabled": false
+        }
+        
+        # Write settings file
+        with open(VSCODE_SETTINGS_FILE, "w") as f:
+            json.dump(vscode_settings, f, indent=2)
+        
+        logger.debug(f"VSCode settings created at {VSCODE_SETTINGS_FILE}")
+        print_success("VSCode optimization configured")
+        
+        # Create .gitignore to exclude large directories
+        gitignore_content = """# Node databases
+/output-directory/
+/database/
+/index/
+
+# Build outputs
+/build/
+/lib/
+
+# Logs
+*.log
+
+# VSCode
+.vscode/
+"""
+        # Write .gitignore
+        with open(f"{TRON_DIR}/.gitignore", "w") as f:
+            f.write(gitignore_content)
+        
+        logger.debug("Created .gitignore file")
+        
+    except Exception as e:
+        logger.error(f"Error setting up VSCode optimization: {str(e)}")
+        logger.error(traceback.format_exc())
+        print_warning(f"Error setting up VSCode optimization: {str(e)}")
+        # Continue script execution despite this error
+
 def create_config_files():
     """Create configuration files using existing config."""
     print_step("Setting up configuration files...")
