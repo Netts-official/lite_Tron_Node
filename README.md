@@ -15,8 +15,8 @@ This script is designed for automatic deployment of a TRON Lite Full Node on Ubu
 ## Requirements
 
 - Ubuntu 20.04/22.04 or Debian 10/11
-- Minimum 16 GB RAM (24 GB recommended)
-- Minimum 500 GB disk space (SSD recommended)
+- Minimum 32 GB RAM (64 GB recommended, 128 GB best perfomance)
+- Minimum 500 GB disk space (SSD or NVMe recommended)
 - Root privileges for installation
 
 ## Installation
