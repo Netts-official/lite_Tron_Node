@@ -59,8 +59,10 @@ SYSTEMD_SERVICE = "/etc/systemd/system/tron-node.service"
 VSCODE_SETTINGS_DIR = f"{TRON_DIR}/.vscode"
 VSCODE_SETTINGS_FILE = f"{VSCODE_SETTINGS_DIR}/settings.json"
 
-# Base URL for downloading archive
-BASE_URL = "http://34.86.86.229/"
+# Base URLs for downloading archive
+PRIMARY_SERVER = "http://34.86.86.229/"
+SECONDARY_SERVER = "http://34.143.247.77/"
+FALLBACK_URL = "http://34.86.86.229/backup20250410/LiteFullNode_output-directory.tgz"
 
 def print_step(message):
     """Print installation step."""
@@ -233,143 +235,159 @@ def configure_java():
         print_warning(f"Error configuring Java: {str(e)}")
         print_warning("Continuing anyway, but build might fail.")
 
-def find_latest_backup_url():
-    """Find URL of the latest available backup."""
+def find_latest_backup_url(server_url):
+    """Find URL of the latest available backup on the specified server."""
     ARCHIVE_NAME = "LiteFullNode_output-directory.tgz"
     
-    print_step("Searching for the latest available backup...")
+    print_step(f"Searching for the latest available backup on {server_url}...")
     
     try:
         # Get page content
-        response = requests.get(BASE_URL, timeout=10)
+        response = requests.get(server_url, timeout=10)
         response.raise_for_status()
         
         # Find backup directories
         backup_dirs = re.findall(r'href="(backup\d{8})/"', response.text)
         
         if not backup_dirs:
-            print_warning("No backup directories found. Using default value.")
-            return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
+            print_warning(f"No backup directories found on {server_url}.")
+            return None
         
         # Get latest backup
         latest_backup = sorted(backup_dirs)[-1]
         print_success(f"Found latest backup: {latest_backup}")
         
         # Form download URL
-        download_url = f"{BASE_URL}{latest_backup}/{ARCHIVE_NAME}"
+        download_url = f"{server_url}{latest_backup}/{ARCHIVE_NAME}"
         
         # Check availability
         test_response = requests.head(download_url, timeout=10)
         if test_response.status_code != 200:
-            print_warning(f"File {download_url} is not available. Using default value.")
-            return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
+            print_warning(f"File {download_url} is not available.")
+            return None
         
         return download_url
     
     except Exception as e:
-        print_warning(f"Error finding latest backup: {str(e)}. Using default value.")
-        return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
+        print_warning(f"Error finding latest backup on {server_url}: {str(e)}")
+        return None
 
-def download_db_with_aria2(download_url, archive_path, connections=10):
-    """Download database using aria2."""
+def download_with_aria2(download_url, archive_path, connections=10):
+    """Download using aria2 with multiple connections."""
+    print_step(f"Attempting to download with aria2 ({connections} connections)...")
+    
     try:
-        print_step(f"Downloading with aria2 using {connections} connections...")
+        # Ensure output directory exists
+        output_dir = os.path.dirname(archive_path)
+        os.makedirs(output_dir, exist_ok=True)
         
-        # Ensure temp directory exists
-        os.makedirs("/tmp", exist_ok=True)
-        
-        # Use aria2c with specified connections
-        download_cmd = f"cd /tmp && aria2c -x{connections} -s{connections} --file-allocation=none '{download_url}' -o $(basename '{archive_path}')"
+        # Run aria2c command
+        download_cmd = f"cd {output_dir} && aria2c -x{connections} -s{connections} --file-allocation=none '{download_url}' -o '{os.path.basename(archive_path)}'"
         run_command(download_cmd, shell=True)
         
-        return True
+        # Check if file exists
+        if os.path.exists(archive_path):
+            file_size = os.path.getsize(archive_path) / (1024 * 1024)  # Size in MB
+            print_success(f"Download completed. File size: {file_size:.2f} MB")
+            return True
+        else:
+            print_warning(f"Download completed but file not found at {archive_path}")
+            return False
+    
     except Exception as e:
         logger.error(f"Error downloading with aria2: {str(e)}")
-        print_warning(f"Error downloading with aria2: {str(e)}")
+        print_warning(f"Failed to download with aria2: {str(e)}")
         return False
 
-def download_db_with_axel(download_url, archive_path, connections=10):
-    """Download database using axel."""
+def download_with_wget(download_url, archive_path):
+    """Download using wget (single connection)."""
+    print_step("Attempting to download with wget (single connection)...")
+    
     try:
-        print_step(f"Downloading with axel using {connections} connections...")
+        # Ensure output directory exists
+        output_dir = os.path.dirname(archive_path)
+        os.makedirs(output_dir, exist_ok=True)
         
-        # Ensure temp directory exists
-        os.makedirs("/tmp", exist_ok=True)
-        
-        # Use axel with specified connections
-        download_cmd = f"cd /tmp && axel -n {connections} -a '{download_url}' -o $(basename '{archive_path}')"
+        # Run wget command
+        download_cmd = f"wget -O '{archive_path}' '{download_url}'"
         run_command(download_cmd, shell=True)
         
-        return True
-    except Exception as e:
-        logger.error(f"Error downloading with axel: {str(e)}")
-        print_warning(f"Error downloading with axel: {str(e)}")
-        return False
-
-def download_db_with_wget(download_url, archive_path):
-    """Download database using wget."""
-    try:
-        print_step("Downloading with wget...")
-        
-        # Ensure temp directory exists
-        os.makedirs("/tmp", exist_ok=True)
-        
-        # Use wget as a fallback
-        download_cmd = f"cd /tmp && wget -O $(basename '{archive_path}') '{download_url}'"
-        run_command(download_cmd, shell=True)
-        
-        return True
+        # Check if file exists
+        if os.path.exists(archive_path):
+            file_size = os.path.getsize(archive_path) / (1024 * 1024)  # Size in MB
+            print_success(f"Download completed. File size: {file_size:.2f} MB")
+            return True
+        else:
+            print_warning(f"Download completed but file not found at {archive_path}")
+            return False
+    
     except Exception as e:
         logger.error(f"Error downloading with wget: {str(e)}")
-        print_warning(f"Error downloading with wget: {str(e)}")
+        print_warning(f"Failed to download with wget: {str(e)}")
         return False
 
-def find_archive_file(expected_path):
-    """Find the archive file in various possible locations."""
-    if os.path.exists(expected_path):
-        return expected_path
+def download_and_extract_db():
+    """Download and extract database archive with multi-server fallback."""
+    print_step("Preparing to download and extract database...")
     
-    # Check alternative locations
-    basename = os.path.basename(expected_path)
-    alt_paths = [
-        os.path.join("/tmp", basename),
-        os.path.join(TRON_DIR, basename),
-        os.path.join(TRON_DIR, "tmp", basename),
-        os.path.join(os.getcwd(), basename),
-    ]
+    # Clean up existing output directory to avoid duplication issues
+    if os.path.exists(OUTPUT_DIR):
+        print_warning(f"Removing existing output directory at {OUTPUT_DIR}")
+        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     
-    # Also search for similar files in /tmp
-    alt_paths.extend(glob.glob(f"/tmp/*{basename}*"))
+    # Create fresh output directory
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    for path in alt_paths:
-        if os.path.exists(path):
-            print_success(f"Found archive at {path}")
-            return path
+    # Define archive path
+    archive_path = "/tmp/tron_backup.tgz"
     
-    print_error(f"Archive not found in any location.")
-    return None
-
-def extract_with_tar_command(archive_path, output_dir, nested=False):
-    """Extract archive using tar command."""
+    # Remove any existing archive file (from previous attempts)
+    if os.path.exists(archive_path):
+        try:
+            os.remove(archive_path)
+            print_warning(f"Removed existing archive file: {archive_path}")
+        except Exception as e:
+            print_warning(f"Could not remove existing archive: {str(e)}")
+    
+    # ====== First try: Primary server with aria2 ======
+    download_success = False
+    
+    # Try to get latest backup URL from primary server
+    primary_url = find_latest_backup_url(PRIMARY_SERVER)
+    if primary_url:
+        print_step(f"Attempting to download from primary server: {primary_url}")
+        download_success = download_with_aria2(primary_url, archive_path)
+    
+    # ====== Second try: Secondary server with aria2 ======
+    if not download_success:
+        print_warning("Download from primary server failed. Trying secondary server...")
+        secondary_url = find_latest_backup_url(SECONDARY_SERVER)
+        if secondary_url:
+            print_step(f"Attempting to download from secondary server: {secondary_url}")
+            download_success = download_with_aria2(secondary_url, archive_path)
+    
+    # ====== Third try: Fallback URL with wget ======
+    if not download_success:
+        print_warning("Download from both servers failed. Using fallback URL with wget...")
+        download_success = download_with_wget(FALLBACK_URL, archive_path)
+    
+    # Check if download was successful
+    if not download_success or not os.path.exists(archive_path):
+        print_error("All download attempts failed. Installation cannot continue.")
+        sys.exit(1)
+    
+    print_success("Archive successfully downloaded")
+    
+    # ====== Extract archive ======
+    print_step("Extracting database archive...")
+    
     try:
-        if nested:
-            print_step("Extracting with tar command (strip-components)...")
-            # Use strip-components to handle nested directories
-            run_command(f"tar -xzf {archive_path} --strip-components=1 -C {output_dir}", shell=True)
-        else:
-            print_step("Extracting with tar command...")
-            run_command(f"tar -xzf {archive_path} -C {output_dir}", shell=True)
+        # Verify archive exists
+        if not os.path.exists(archive_path):
+            print_error(f"Archive file not found at {archive_path}. Extraction failed.")
+            sys.exit(1)
         
-        return True
-    except Exception as e:
-        logger.error(f"Error extracting with tar command: {str(e)}")
-        print_warning(f"Error extracting with tar command: {str(e)}")
-        return False
-
-def extract_with_python(archive_path, output_dir):
-    """Extract archive using Python's tarfile."""
-    try:
-        print_step("Extracting with Python tarfile...")
+        # Check archive structure
         with tarfile.open(archive_path) as tar:
             # Get all top-level directories in archive
             top_dirs = set()
@@ -382,115 +400,33 @@ def extract_with_python(archive_path, output_dir):
             
             # Check if there's a nested output-directory
             if 'output-directory' in top_dirs:
-                print_warning("Archive contains nested output-directory, adjusting extraction")
+                print_warning("Archive contains nested output-directory, using strip-components method")
+                tar.close()  # Close tarfile before using system tar command
                 
-                # Create a temporary directory for extraction
-                tmp_extract_dir = f"/tmp/tron_extract_{int(time.time())}"
-                os.makedirs(tmp_extract_dir, exist_ok=True)
-                
-                tar.extractall(path=tmp_extract_dir)
-                
-                # Move database from nested structure to correct location
-                nested_db_path = os.path.join(tmp_extract_dir, 'output-directory', 'database')
-                if os.path.exists(nested_db_path):
-                    print_success(f"Moving database from {nested_db_path} to {output_dir}")
-                    if os.path.exists(os.path.join(output_dir, 'database')):
-                        shutil.rmtree(os.path.join(output_dir, 'database'))
-                    shutil.move(nested_db_path, output_dir)
-                
-                # Cleanup temp directory
-                shutil.rmtree(tmp_extract_dir, ignore_errors=True)
+                # Use tar command with strip-components option
+                extract_cmd = f"tar -xzf '{archive_path}' --strip-components=1 -C '{OUTPUT_DIR}'"
+                run_command(extract_cmd, shell=True)
             else:
                 # Normal extraction
-                tar.extractall(path=output_dir)
+                print_step("Extracting archive normally...")
+                tar.extractall(path=OUTPUT_DIR)
+    
+    except Exception as e:
+        print_error(f"Error during extraction: {str(e)}")
+        logger.error(f"Extraction error: {traceback.format_exc()}")
         
-        return True
-    except Exception as e:
-        logger.error(f"Error extracting with Python tarfile: {str(e)}")
-        print_warning(f"Error extracting with Python tarfile: {str(e)}")
-        return False
-
-def download_and_extract_db():
-    """Download and extract database archive with multi-threaded download."""
-    print_step("Preparing to download and extract database...")
-    
-    # Clean up existing output directory to avoid duplication issues
-    if os.path.exists(OUTPUT_DIR):
-        print_warning(f"Removing existing output directory at {OUTPUT_DIR}")
-        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    
-    # Create fresh output directory
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    # Get download URL
-    download_url = find_latest_backup_url()
-    print(f"Download URL: {download_url}")
-    
-    # Archive path
-    archive_path = f"/tmp/tron_backup.tgz"
-    
-    # ====== Download section ======
-    # Try multiple download methods in order of preference
-    success = False
-    
-    # Check if aria2 is available
-    if run_command("which aria2c", check=False):
-        success = download_db_with_aria2(download_url, archive_path)
-    
-    # If aria2 failed, try axel
-    if not success and run_command("which axel", check=False):
-        success = download_db_with_axel(download_url, archive_path)
-    
-    # If both failed, fall back to wget
-    if not success:
-        success = download_db_with_wget(download_url, archive_path)
-    
-    if not success:
-        print_error("All download methods failed. Cannot continue.")
-        sys.exit(1)
-    
-    print_success("Archive downloaded")
-    
-    # ====== Find archive file ======
-    archive_path = find_archive_file(archive_path)
-    if not archive_path:
-        print_error("Could not find downloaded archive. Installation cannot continue.")
-        sys.exit(1)
-    
-    # ====== Extract section ======
-    print_step("Extracting database archive...")
-    
-    # Determine if archive has nested structure
-    has_nested_structure = False
-    try:
-        with tarfile.open(archive_path) as tar:
-            top_dirs = set()
-            for member in tar.getmembers():
-                parts = member.name.split('/')
-                if parts:
-                    top_dirs.add(parts[0])
-            has_nested_structure = 'output-directory' in top_dirs
-            logger.debug(f"Archive has nested structure: {has_nested_structure}")
-    except Exception as e:
-        logger.warning(f"Could not check archive structure: {str(e)}")
-    
-    # Try multiple extraction methods in order of preference
-    extraction_success = False
-    
-    # Try tar command first (more efficient for large files)
-    extraction_success = extract_with_tar_command(archive_path, OUTPUT_DIR, nested=has_nested_structure)
-    
-    # If tar command failed, try Python's tarfile
-    if not extraction_success:
-        extraction_success = extract_with_python(archive_path, OUTPUT_DIR)
-    
-    if not extraction_success:
-        print_error("All extraction methods failed. Cannot continue.")
-        sys.exit(1)
+        # Fallback to direct extraction
+        print_warning("Falling back to direct extraction")
+        try:
+            extract_cmd = f"tar -xzf '{archive_path}' -C '{OUTPUT_DIR}'"
+            run_command(extract_cmd, shell=True)
+        except Exception as e2:
+            print_error(f"Fatal error during extraction: {str(e2)}")
+            sys.exit(1)
     
     print_success("Archive extraction completed")
     
-    # ====== Verify database directory ======
+    # Verify database directory exists
     db_path = os.path.join(OUTPUT_DIR, 'database')
     if not os.path.exists(db_path):
         print_warning("Database directory not found at expected location. Searching...")
@@ -514,8 +450,10 @@ def download_and_extract_db():
         if not found:
             print_error("Database directory not found after extraction. Installation cannot continue.")
             sys.exit(1)
+    else:
+        print_success(f"Database directory found at {db_path}")
     
-    # ====== Clean up archive ======
+    # Remove archive
     try:
         if os.path.exists(archive_path):
             os.remove(archive_path)
