@@ -11,14 +11,19 @@ import tarfile
 import stat
 import re
 import logging
-import datetime
 from datetime import datetime
 import traceback
 
-# Setting up the logging directory to script location
+# Get absolute path of the script directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if not SCRIPT_DIR:
+    SCRIPT_DIR = os.getcwd()
 LOG_DIR = SCRIPT_DIR
 LOG_FILE = f"{LOG_DIR}/installation.log"
+
+# Create log directory if it doesn't exist
+os.makedirs(LOG_DIR, exist_ok=True)
+print(f"Log directory: {LOG_DIR}")
 
 # Configure logger
 logging.basicConfig(
@@ -48,7 +53,6 @@ OUTPUT_DIR = f"{TRON_DIR}/output-directory"
 CONFIG_FILE = f"{TRON_DIR}/last-conf.conf"
 START_SCRIPT = f"{TRON_DIR}/last-node-start.sh"
 SYSTEMD_SERVICE = "/etc/systemd/system/tron-node.service"
-DEBUG_LOG = f"{TRON_DIR}/debug.log"
 
 # Base URL for downloading archive (actual link will be determined automatically)
 BASE_URL = "http://34.86.86.229/"
@@ -82,7 +86,8 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
     logger.debug(f"Running command: {command}")
     
     # Create a file for command output logging
-    command_log_file = f"{LOG_DIR}/command_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    command_log_file = f"{LOG_DIR}/command_{timestamp}.log"
     
     try:
         if isinstance(command, str) and not shell:
@@ -179,7 +184,10 @@ def run_command_with_live_output(command, cwd=None, shell=True):
     logger.debug(f"Running command with live output: {command}")
     
     # Create a file for command output logging
-    command_log_file = f"{LOG_DIR}/command_live_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    command_log_file = f"{LOG_DIR}/command_live_{timestamp}.log"
+    logger.info(f"Command log will be saved to: {command_log_file}")
+    print(f"Command log will be saved to: {command_log_file}")
     
     try:
         with open(command_log_file, 'w') as log_file:
@@ -225,64 +233,6 @@ def check_root():
         sys.exit(1)
     logger.debug("Root privileges confirmed")
 
-def check_system_resources():
-    """Check system resources."""
-    logger.debug("Checking system resources")
-    
-    # Check available memory
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            mem_info = f.read()
-        
-        # Extract memory information
-        total_mem = int(re.search(r'MemTotal:\s+(\d+)', mem_info).group(1)) // 1024  # MB
-        free_mem = int(re.search(r'MemFree:\s+(\d+)', mem_info).group(1)) // 1024  # MB
-        available_mem = int(re.search(r'MemAvailable:\s+(\d+)', mem_info).group(1)) // 1024  # MB
-        
-        logger.debug(f"Total memory: {total_mem} MB")
-        logger.debug(f"Free memory: {free_mem} MB")
-        logger.debug(f"Available memory: {available_mem} MB")
-        
-        if total_mem < 15000:  # Less than 15 GB
-            logger.warning(f"System has only {total_mem} MB of total memory. Minimum recommended is 16 GB.")
-            print_warning(f"System has only {total_mem} MB of total memory. Minimum recommended is 16 GB.")
-    
-    except Exception as e:
-        logger.error(f"Error checking memory: {str(e)}")
-        print_warning("Could not check available memory.")
-    
-    # Check available disk space
-    try:
-        disk_info = os.statvfs('/home')
-        total_space = disk_info.f_frsize * disk_info.f_blocks // (1024 * 1024 * 1024)  # GB
-        free_space = disk_info.f_frsize * disk_info.f_bfree // (1024 * 1024 * 1024)  # GB
-        
-        logger.debug(f"Total disk space: {total_space} GB")
-        logger.debug(f"Free disk space: {free_space} GB")
-        
-        if free_space < 500:  # Less than 500 GB
-            logger.warning(f"System has only {free_space} GB of free disk space. Minimum recommended is 500 GB.")
-            print_warning(f"System has only {free_space} GB of free disk space. Minimum recommended is 500 GB.")
-    
-    except Exception as e:
-        logger.error(f"Error checking disk space: {str(e)}")
-        print_warning("Could not check available disk space.")
-    
-    # Check number of processors
-    try:
-        cpu_count = os.cpu_count()
-        logger.debug(f"CPU count: {cpu_count}")
-        
-        if cpu_count < 4:
-            logger.warning(f"System has only {cpu_count} CPU cores. Minimum recommended is 4 cores.")
-            print_warning(f"System has only {cpu_count} CPU cores. Minimum recommended is 4 cores.")
-    
-    except Exception as e:
-        logger.error(f"Error checking CPU count: {str(e)}")
-        print_warning("Could not check number of processors.")
-    
-    logger.debug("System resource check completed")
-
 def install_dependencies():
     """Install required dependencies."""
     print_step("Installing necessary packages...")
@@ -323,120 +273,41 @@ def configure_java():
     print_step("Configuring Java 8...")
     logger.debug("Starting Java 8 configuration")
     
+    # Force set JAVA_HOME environment variable
+    java_home = "/usr/lib/jvm/java-8-openjdk-amd64"
+    os.environ["JAVA_HOME"] = java_home
+    logger.debug(f"Set JAVA_HOME={java_home}")
+    
+    # Export JAVA_HOME globally
+    with open("/etc/profile.d/java.sh", "w") as f:
+        f.write(f'export JAVA_HOME="{java_home}"\n')
+        f.write('export PATH="$JAVA_HOME/bin:$PATH"\n')
+    logger.debug("Added JAVA_HOME to /etc/profile.d/java.sh")
+    
+    # Source the file to apply changes
+    run_command("source /etc/profile.d/java.sh", shell=True, check=False)
+    
+    # Direct approach with update-alternatives
     try:
-        # Check installed Java versions
-        logger.debug("Checking installed Java versions")
-        java_versions_output = run_command("update-alternatives --list java", check=False)
-        logger.debug(f"Installed Java versions: {java_versions_output}")
+        # Set Java 8 as default
+        run_command("update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java", check=False)
+        run_command("update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac", check=False)
+        logger.debug("Set Java 8 as default using update-alternatives")
         
-        if java_versions_output and "java-8" in java_versions_output:
-            logger.debug("Java 8 is installed, configuring as default")
-            
-            # Get Java configuration options
-            logger.debug("Getting Java configuration options")
-            java_config_cmd = "update-alternatives --config java"
-            print_debug(f"Getting Java configuration options: {java_config_cmd}")
-            
-            process = subprocess.Popen(
-                java_config_cmd,
-                shell=True,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            
-            stdout, stderr = process.communicate()
-            logger.debug(f"Java configuration options: {stdout}")
-            if stderr:
-                logger.warning(f"Java configuration stderr: {stderr}")
-            
-            # Find Java 8 option
-            lines = stdout.strip().split('\n')
-            java8_option = None
-            
-            for line in lines:
-                logger.debug(f"Processing line: {line}")
-                if "java-8" in line:
-                    parts = line.split()
-                    logger.debug(f"Found Java 8 line, parts: {parts}")
-                    if parts and len(parts) > 0:
-                        java8_option = parts[0].strip()
-                        logger.debug(f"Java 8 option: {java8_option}")
-            
-            if java8_option:
-                # Set Java 8 via echo
-                logger.debug(f"Setting Java 8 as default using option {java8_option}")
-                run_command(f"echo {java8_option} | update-alternatives --config java", shell=True)
-                
-                # Configure javac
-                logger.debug("Configuring javac")
-                javac_config_cmd = "update-alternatives --config javac"
-                print_debug(f"Getting javac configuration options: {javac_config_cmd}")
-                
-                process = subprocess.Popen(
-                    javac_config_cmd,
-                    shell=True,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                
-                stdout, stderr = process.communicate()
-                logger.debug(f"Javac configuration options: {stdout}")
-                if stderr:
-                    logger.warning(f"Javac configuration stderr: {stderr}")
-                
-                # Find Javac 8 option
-                lines = stdout.strip().split('\n')
-                javac8_option = None
-                
-                for line in lines:
-                    logger.debug(f"Processing javac line: {line}")
-                    if "java-8" in line:
-                        parts = line.split()
-                        logger.debug(f"Found Javac 8 line, parts: {parts}")
-                        if parts and len(parts) > 0:
-                            javac8_option = parts[0].strip()
-                            logger.debug(f"Javac 8 option: {javac8_option}")
-                
-                if javac8_option:
-                    logger.debug(f"Setting Javac 8 as default using option {javac8_option}")
-                    run_command(f"echo {javac8_option} | update-alternatives --config javac", shell=True)
-        
-        # Check Java version
-        logger.debug("Checking current Java version")
+        # Verify Java 8 is set as default
         java_version = run_command("java -version 2>&1", check=False, shell=True)
-        logger.debug(f"Current Java version: {java_version}")
-        
-        if java_version and "1.8" not in java_version:
-            logger.warning("Java 8 is not set as the main version. Setting manually...")
-            print_warning("Java 8 is not set as the main version. Setting manually...")
-            
-            # Set Java 8 as default via update-alternatives
-            logger.debug("Setting Java 8 manually")
-            run_command("update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java")
-            run_command("update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac")
-        
-        # Verify again
-        logger.debug("Verifying Java 8 configuration")
-        java_version = run_command("java -version 2>&1 | grep version", shell=True)
-        logger.debug(f"Java version after configuration: {java_version}")
+        logger.debug(f"Java version: {java_version}")
         
         if "1.8" in java_version:
             print_success("Java 8 configured as main version")
-            logger.debug("Java 8 configured as main version")
         else:
-            logger.error("Failed to configure Java 8")
-            print_error("Failed to configure Java 8")
-            sys.exit(1)
-    
+            print_warning("Java 8 is not set as the main version, continuing anyway")
+        
     except Exception as e:
         logger.error(f"Error configuring Java 8: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Error configuring Java 8: {str(e)}")
-        sys.exit(1)
+        print_warning(f"Error configuring Java 8: {str(e)}")
+        print_warning("Continuing anyway, but the build might fail")
 
 def find_latest_backup_url():
     """Find URL of the latest available backup."""
@@ -655,28 +526,52 @@ def clone_and_build_java_tron():
         checkout_result = run_command("git checkout -t origin/master", check=False)
         logger.debug(f"Checkout result: {checkout_result}")
         
-        # Add dependency for javax.annotation.Generated
+        # Fix build.gradle file to properly add javax.annotation dependency
         gradle_build_file = f"{TRON_DIR}/build.gradle"
-        logger.debug(f"Checking build.gradle file: {gradle_build_file}")
+        logger.debug(f"Examining build.gradle file: {gradle_build_file}")
         
         if os.path.exists(gradle_build_file):
-            logger.debug("build.gradle file exists, checking for dependency")
-            with open(gradle_build_file, "r") as file:
-                content = file.read()
+            logger.debug("build.gradle file exists, checking content")
+            with open(gradle_build_file, "r") as f:
+                content = f.read()
             
-            # Check if dependency already exists
-            if "javax.annotation:javax.annotation-api" not in content:
-                logger.debug("Adding javax.annotation dependency to build.gradle")
-                dependency_line = "dependencies {\n    implementation 'javax.annotation:javax.annotation-api:1.3.2'"
-                content = content.replace("dependencies {", dependency_line)
+            # Look for dependencies block
+            logger.debug("Looking for dependencies block")
+            
+            # Create a backup of the original file
+            with open(f"{gradle_build_file}.bak", "w") as f:
+                f.write(content)
+            logger.debug("Created backup of build.gradle")
+            
+            # Find all dependencies blocks - this is more robust
+            allprojects_dependencies = re.findall(r'allprojects\s*{[^}]*dependencies\s*{([^}]*)}', content, re.DOTALL)
+            logger.debug(f"Found {len(allprojects_dependencies)} allprojects dependencies blocks")
+            
+            # Check for a way to add the dependency safely
+            if allprojects_dependencies:
+                # Replace the first occurrence of dependencies within allprojects
+                new_content = content
+                for block in allprojects_dependencies:
+                    if "javax.annotation:javax.annotation-api" not in block:
+                        replacement = block + "\n    compile 'javax.annotation:javax.annotation-api:1.3.2'\n"
+                        new_content = new_content.replace(block, replacement, 1)
+                        logger.debug("Added dependency to allprojects dependencies block")
+                        break
                 
-                with open(gradle_build_file, "w") as file:
-                    file.write(content)
-                logger.debug("Dependency added to build.gradle")
+                with open(gradle_build_file, "w") as f:
+                    f.write(new_content)
+                logger.debug("Updated build.gradle with annotation dependency")
             else:
-                logger.debug("javax.annotation dependency already exists in build.gradle")
+                # If we can't find an appropriate block, try another approach
+                logger.debug("Could not find appropriate dependencies block, trying direct addition")
+                
+                # Try to add it directly to the end of the file
+                with open(gradle_build_file, "a") as f:
+                    f.write("\n\nallprojects {\n    dependencies {\n        compile 'javax.annotation:javax.annotation-api:1.3.2'\n    }\n}\n")
+                logger.debug("Appended dependency to build.gradle")
         else:
             logger.warning(f"build.gradle file not found at {gradle_build_file}")
+            print_warning("build.gradle file not found. Build may fail.")
         
         # Check gradlew permissions
         logger.debug("Checking gradlew permissions")
@@ -689,15 +584,15 @@ def clone_and_build_java_tron():
         print_step("Building java-tron (this may take some time)...")
         logger.debug("Starting java-tron build")
         
-        # Create file for build logs
-        build_log_file = f"{LOG_DIR}/build.log"
-        logger.debug(f"Build log will be saved to: {build_log_file}")
-        
+        # Create gradlew environment with JAVA_HOME explicitly set
+        env = os.environ.copy()
+        env["JAVA_HOME"] = "/usr/lib/jvm/java-8-openjdk-amd64"
+        logger.debug(f"Set environment JAVA_HOME={env['JAVA_HOME']}")
+
         print("Build started, please wait (may take 10-20 minutes)...")
-        print("Detailed build output will be saved to log file.")
         
-        # Run build with real-time output
-        build_cmd = "./gradlew clean build -x test --info --stacktrace"
+        # Run build with environment variables set
+        build_cmd = f"JAVA_HOME={env['JAVA_HOME']} ./gradlew clean build -x test --info --stacktrace"
         logger.debug(f"Running build command: {build_cmd}")
         
         return_code, live_log_file = run_command_with_live_output(build_cmd, cwd=TRON_DIR)
@@ -707,7 +602,35 @@ def clone_and_build_java_tron():
             logger.error(f"java-tron build failed with return code {return_code}")
             print_error(f"java-tron build failed (error code: {return_code}).")
             print_error(f"Check build logs: {live_log_file}")
-            sys.exit(1)
+            
+            # Special handling for failing build - try fallback approach
+            print_warning("Trying fallback approach...")
+            logger.warning("Trying fallback approach for build")
+            
+            # Try an alternative way to add the missing annotation
+            logger.debug("Applying fallback solution for javax.annotation dependency")
+            
+            # Create a local lib directory
+            lib_dir = f"{TRON_DIR}/lib"
+            os.makedirs(lib_dir, exist_ok=True)
+            
+            # Download the javax.annotation-api jar directly
+            annotation_jar = f"{lib_dir}/javax.annotation-api-1.3.2.jar"
+            download_cmd = f"wget -O {annotation_jar} https://repo1.maven.org/maven2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.jar"
+            run_command(download_cmd, shell=True)
+            
+            # Update build.gradle to include the local jar
+            with open(gradle_build_file, "a") as f:
+                f.write(f"\n\nallprojects {{\n    dependencies {{\n        compile files('{lib_dir}/javax.annotation-api-1.3.2.jar')\n    }}\n}}\n")
+            
+            # Try build again
+            print_step("Retrying build with fallback approach...")
+            return_code, live_log_file = run_command_with_live_output(build_cmd, cwd=TRON_DIR)
+            
+            if return_code != 0 or not os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
+                logger.error("Fallback build also failed")
+                print_error("Fallback build also failed. Installation cannot continue.")
+                sys.exit(1)
         
         # Check for FullNode.jar file
         if os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
@@ -1735,9 +1658,6 @@ def main():
         
         # Check root privileges
         check_root()
-        
-        # Check system resources
-        check_system_resources()
         
         # Install dependencies
         install_dependencies()
