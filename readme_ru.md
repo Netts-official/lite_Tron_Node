@@ -2,14 +2,14 @@
 
 ## Описание
 
-Данный скрипт предназначен для автоматического развертывания облегченной полной ноды TRON на серверах Ubuntu/Debian. Скрипт выполняет следующие операции:
+Этот скрипт предназначен для автоматического развертывания облегченной полной ноды TRON на серверах Ubuntu/Debian. Скрипт выполняет следующие операции:
 
-1. Установку необходимых зависимостей
-2. Настройку Java 8 как основной версии
-3. Клонирование и сборку репозитория java-tron
-4. Автоматический поиск и загрузку последнего доступного архива базы данных для быстрого старта
+1. Установка необходимых зависимостей
+2. Настройка Java 8 в качестве основной версии
+3. Клонирование и сборка репозитория java-tron
+4. Автоматический поиск и загрузка последнего доступного архива базы данных для быстрого старта
 5. Создание всех конфигурационных файлов
-6. Настройку автозапуска через systemd
+6. Настройка автозапуска через systemd
 7. Запуск ноды
 
 ## Требования
@@ -24,7 +24,7 @@
 ### Вариант 1: Прямая установка из GitHub
 
 ```bash
-# Клонируем репозиторий
+# Клонирование репозитория
 git clone https://github.com/Netts-official/lite_Tron_Node.git
 cd lite_Tron_Node
 
@@ -32,13 +32,25 @@ cd lite_Tron_Node
 chmod +x install_tron_node.py
 
 # Запускаем скрипт с правами root
+sudo nohup python3 install_tron_node.py > /home/lite_Tron_Node/tron-install.log 2>&1 &
+или
 sudo python3 install_tron_node.py
+```
+
+### Проверка логов
+```bash
+tail -f /home/lite_Tron_Node/tron-install.log
+```
+
+### Проверка скрипта
+```bash
+ps aux | grep python
 ```
 
 ### Вариант 2: Загрузка и запуск скрипта напрямую
 
 ```bash
-# Загружаем скрипт
+# Загрузка скрипта
 wget https://raw.githubusercontent.com/Netts-official/lite_Tron_Node/main/install_tron_node.py
 
 # Делаем скрипт исполняемым
@@ -48,7 +60,7 @@ chmod +x install_tron_node.py
 sudo python3 install_tron_node.py
 ```
 
-## Команды для управления нодой
+## Команды управления нодой
 
 ### Проверка статуса ноды
 ```bash
@@ -88,6 +100,8 @@ curl http://127.0.0.1:8090/wallet/getnodeinfo
 ### Проверка текущего блока
 ```bash
 curl http://127.0.0.1:8090/wallet/getnowblock
+
+curl -s http://127.0.0.1:8090/wallet/getnodeinfo | grep -o '"block":"[^"]*"' | grep -o 'Num:[0-9]*'
 ```
 
 ## Мониторинг и логи
@@ -107,11 +121,11 @@ journalctl -u tron-node -n 100
 journalctl -u tron-node --since "1 hour ago"
 ```
 
-## Решение проблем
+## Устранение неполадок
 
-### Проблема с Java версией
+### Проблемы с версией Java
 
-Если возникли проблемы с версией Java, можно вручную настроить Java 8:
+Если у вас возникли проблемы с версией Java, вы можете вручную настроить Java 8:
 
 ```bash
 sudo update-alternatives --config java
@@ -121,9 +135,9 @@ sudo update-alternatives --config javac
 # Выберите опцию с java-8-openjdk
 ```
 
-### Проблемы с компиляцией java-tron
+### Проблемы с компиляцией Java-tron
 
-Если возникают ошибки при компиляции, связанные с отсутствием класса `javax.annotation.Generated`, добавьте следующую зависимость в файл `build.gradle`:
+Если вы столкнулись с ошибками во время компиляции, связанными с отсутствием класса `javax.annotation.Generated`, добавьте следующую зависимость в файл `build.gradle`:
 
 ```
 dependencies {
@@ -135,12 +149,12 @@ dependencies {
 
 Если скрипт не может автоматически найти или загрузить последний архив базы данных, вы можете:
 
-1. Посмотреть доступные бэкапы вручную:
+1. Вручную проверить доступные резервные копии:
 ```bash
 curl -s http://34.86.86.229/ | grep -o 'backup[0-9]\{8\}'
 ```
 
-2. Скачать архив вручную, используя последний доступный бэкап (замените XXXXXXXX на актуальную дату):
+2. Загрузить архив вручную, используя последнюю доступную резервную копию (замените XXXXXXXX фактической датой):
 ```bash
 wget http://34.86.86.229/backupXXXXXXXX/LiteFullNode_output-directory.tgz -O /tmp/LiteFullNode_output-directory.tgz
 mkdir -p /home/java-tron/output-directory
@@ -161,12 +175,13 @@ systemctl restart tron-node
 ## Дополнительная информация
 
 - Конфигурационный файл: `/home/java-tron/last-conf.conf`
-- Стартовый скрипт: `/home/java-tron/last-node-start.sh`
+- Скрипт запуска: `/home/java-tron/last-node-start.sh`
 - Директория данных: `/home/java-tron/output-directory`
 - Systemd сервис: `/etc/systemd/system/tron-node.service`
 
 ## Полезные ссылки
 
 - [Официальная документация TRON](https://developers.tron.network/)
-- [GitHub репозиторий java-tron](https://github.com/tronprotocol/java-tron)
-- [TRON Explorer](https://tronscan.org/)
+- [GitHub репозиторий Java-tron](https://github.com/tronprotocol/java-tron)
+- [TRON Explorer](https://tronscan.org/)# lite_Tron_Node
+Установка LiteFullNode
