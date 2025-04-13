@@ -191,7 +191,7 @@ def find_latest_backup_url():
         return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
 
 def download_and_extract_db():
-    """Download and extract database archive."""
+    """Download and extract database archive with multi-threaded download."""
     print_step("Downloading database archive...")
     
     # Clean up existing output directory to avoid duplication issues
@@ -206,11 +206,40 @@ def download_and_extract_db():
     download_url = find_latest_backup_url()
     print(f"Download URL: {download_url}")
     
-    # Download file
+    # Archive path
     archive_path = f"/tmp/tron_backup.tgz"
-    print(f"Downloading {download_url}...")
     
-    run_command(f"wget -O {archive_path} {download_url}", shell=True)
+    # Check if aria2 is installed, install if not
+    aria2_check = run_command("which aria2c", check=False)
+    if not aria2_check:
+        print_step("Installing aria2 for multi-threaded download...")
+        run_command("apt-get update && apt-get install -y aria2", shell=True)
+        print_success("aria2 installed")
+    
+    # Check if axel is available as fallback
+    axel_check = run_command("which axel", check=False)
+    if not axel_check and not aria2_check:
+        print_step("Installing axel as fallback...")
+        run_command("apt-get update && apt-get install -y axel", shell=True)
+        print_success("axel installed")
+    
+    # Download using aria2 with 10 connections
+    if aria2_check or run_command("which aria2c", check=False):
+        print_step(f"Downloading {download_url} using aria2 with 10 connections...")
+        download_cmd = f"aria2c -x10 -s10 '{download_url}' -o {archive_path}"
+        print(download_cmd)
+        run_command(download_cmd, shell=True)
+    # Fallback to axel if aria2 fails
+    elif axel_check or run_command("which axel", check=False):
+        print_step(f"Downloading {download_url} using axel with 10 connections...")
+        download_cmd = f"axel -n 10 -a '{download_url}' -o {archive_path}"
+        print(download_cmd)
+        run_command(download_cmd, shell=True)
+    # Fallback to wget as last resort
+    else:
+        print_warning("Multi-threaded downloaders not available, falling back to wget...")
+        run_command(f"wget -O {archive_path} '{download_url}'", shell=True)
+    
     print_success("Archive downloaded")
     
     # Extract archive
@@ -230,23 +259,10 @@ def download_and_extract_db():
             
             # Check if there's a nested output-directory
             if 'output-directory' in top_dirs:
-                print_warning("Archive contains nested output-directory, adjusting extraction path")
+                print_warning("Archive contains nested output-directory, using strip-components method")
                 
-                # Create a temporary directory for extraction
-                tmp_extract_dir = f"/tmp/tron_extract_{int(time.time())}"
-                os.makedirs(tmp_extract_dir, exist_ok=True)
-                
-                # Extract to temp directory
-                tar.extractall(path=tmp_extract_dir)
-                
-                # Move database from nested structure to correct location
-                nested_db_path = os.path.join(tmp_extract_dir, 'output-directory', 'database')
-                if os.path.exists(nested_db_path):
-                    print(f"Moving database from {nested_db_path} to {OUTPUT_DIR}")
-                    shutil.move(nested_db_path, OUTPUT_DIR)
-                
-                # Cleanup temp directory
-                shutil.rmtree(tmp_extract_dir, ignore_errors=True)
+                # Use tar command with strip-components option for more efficiency
+                run_command(f"tar -xzf {archive_path} --strip-components=1 -C {OUTPUT_DIR}", shell=True)
             else:
                 # Normal extraction
                 tar.extractall(path=OUTPUT_DIR)
