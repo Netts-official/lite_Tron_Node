@@ -15,14 +15,12 @@ import datetime
 from datetime import datetime
 import traceback
 
-# Настройка логирования
-LOG_DIR = "/var/log/tron-node"
+# Setting up the logging directory to script location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = SCRIPT_DIR
 LOG_FILE = f"{LOG_DIR}/installation.log"
 
-# Создаем директорию для логов, если она не существует
-os.makedirs(LOG_DIR, exist_ok=True)
-
-# Настраиваем логгер
+# Configure logger
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -33,17 +31,17 @@ logging.basicConfig(
     ]
 )
 
-# Получаем логгер
+# Get logger
 logger = logging.getLogger('tron_installer')
 
-# Цвета для вывода
+# Colors for output
 GREEN = '\033[92m'
 RED = '\033[91m'
 YELLOW = '\033[93m'
 BLUE = '\033[94m'
 RESET = '\033[0m'
 
-# Основные пути
+# Main paths
 HOME_DIR = os.path.expanduser("~")
 TRON_DIR = "/home/java-tron"
 OUTPUT_DIR = f"{TRON_DIR}/output-directory"
@@ -52,45 +50,45 @@ START_SCRIPT = f"{TRON_DIR}/last-node-start.sh"
 SYSTEMD_SERVICE = "/etc/systemd/system/tron-node.service"
 DEBUG_LOG = f"{TRON_DIR}/debug.log"
 
-# База URL для загрузки архива (актуальная ссылка будет определена автоматически)
+# Base URL for downloading archive (actual link will be determined automatically)
 BASE_URL = "http://34.86.86.229/"
 
 def print_step(message):
-    """Печать шага установки."""
+    """Print installation step."""
     logger.info(message)
     print(f"\n{BLUE}==>{RESET} {message}")
 
 def print_success(message):
-    """Печать сообщения об успехе."""
+    """Print success message."""
     logger.info(f"SUCCESS: {message}")
     print(f"{GREEN}✓ {message}{RESET}")
 
 def print_error(message):
-    """Печать сообщения об ошибке."""
+    """Print error message."""
     logger.error(f"ERROR: {message}")
-    print(f"{RED}✗ ОШИБКА: {message}{RESET}")
+    print(f"{RED}✗ ERROR: {message}{RESET}")
     
 def print_warning(message):
-    """Печать предупреждения."""
+    """Print warning message."""
     logger.warning(f"WARNING: {message}")
     print(f"{YELLOW}! {message}{RESET}")
 
 def print_debug(message):
-    """Печать отладочной информации."""
+    """Print debug information."""
     logger.debug(message)
 
 def run_command(command, check=True, shell=False, cwd=None, log_output=True):
-    """Выполнение команды с выводом результата и подробным логированием."""
+    """Run command with output result and detailed logging."""
     logger.debug(f"Running command: {command}")
     
-    # Создаем файл для логирования вывода команды
+    # Create a file for command output logging
     command_log_file = f"{LOG_DIR}/command_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
     try:
         if isinstance(command, str) and not shell:
             command = command.split()
         
-        # Запускаем процесс с перехватом вывода для логирования
+        # Run process with output capture for logging
         with open(command_log_file, 'w') as log_file:
             if log_output:
                 process = subprocess.Popen(
@@ -106,7 +104,7 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
                 stdout_data = ""
                 stderr_data = ""
                 
-                # Обрабатываем stdout
+                # Process stdout
                 for line in process.stdout:
                     stdout_data += line
                     log_file.write(line)
@@ -115,7 +113,7 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
                 
                 process.stdout.close()
                 
-                # Обрабатываем stderr
+                # Process stderr
                 for line in process.stderr:
                     stderr_data += line
                     log_file.write(f"ERROR: {line}")
@@ -124,15 +122,15 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
                 
                 process.stderr.close()
                 
-                # Ждем завершения процесса
+                # Wait for process to complete
                 returncode = process.wait()
                 
                 if check and returncode != 0:
                     logger.error(f"Command failed with return code {returncode}")
                     logger.error(f"Command stderr: {stderr_data}")
-                    print_error(f"Команда завершилась с ошибкой (код {returncode})")
+                    print_error(f"Command failed with return code {returncode}")
                     print(f"Stderr: {stderr_data}")
-                    print(f"Полный лог команды: {command_log_file}")
+                    print(f"Full command log: {command_log_file}")
                     if check:
                         sys.exit(1)
                     return None
@@ -140,7 +138,7 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
                 logger.debug(f"Command completed successfully with return code {returncode}")
                 return stdout_data.strip()
             else:
-                # Запускаем без захвата вывода для интерактивных команд
+                # Run without output capture for interactive commands
                 result = subprocess.run(
                     command, 
                     cwd=cwd,
@@ -151,7 +149,7 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
                     text=True
                 )
                 
-                # Логируем результат
+                # Log result
                 log_file.write(f"STDOUT: {result.stdout}\n")
                 log_file.write(f"STDERR: {result.stderr}\n")
                 
@@ -162,25 +160,25 @@ def run_command(command, check=True, shell=False, cwd=None, log_output=True):
     except subprocess.CalledProcessError as e:
         logger.error(f"Command execution error: {command}")
         logger.error(f"Stderr: {e.stderr}")
-        print_error(f"Ошибка выполнения команды: {command}")
+        print_error(f"Command execution error: {command}")
         print(f"Stderr: {e.stderr}")
-        print(f"Полный лог команды: {command_log_file}")
+        print(f"Full command log: {command_log_file}")
         if check:
             sys.exit(1)
         return None
     except Exception as e:
         logger.error(f"Unexpected error executing command: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Непредвиденная ошибка при выполнении команды: {str(e)}")
+        print_error(f"Unexpected error executing command: {str(e)}")
         if check:
             sys.exit(1)
         return None
 
 def run_command_with_live_output(command, cwd=None, shell=True):
-    """Выполнение команды с отображением вывода в режиме реального времени."""
+    """Run command with real-time output display."""
     logger.debug(f"Running command with live output: {command}")
     
-    # Создаем файл для логирования вывода команды
+    # Create a file for command output logging
     command_log_file = f"{LOG_DIR}/command_live_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
     try:
@@ -195,7 +193,7 @@ def run_command_with_live_output(command, cwd=None, shell=True):
                 bufsize=1  # Line buffered
             )
             
-            # Читаем вывод и отображаем в реальном времени
+            # Read output and display in real-time
             while True:
                 line = process.stdout.readline()
                 if not line and process.poll() is not None:
@@ -207,7 +205,7 @@ def run_command_with_live_output(command, cwd=None, shell=True):
                     log_file.flush()
                     logger.debug(f"LIVE OUTPUT: {line}")
             
-            # Получаем код возврата
+            # Get return code
             return_code = process.wait()
             logger.debug(f"Command completed with return code {return_code}")
             
@@ -215,91 +213,91 @@ def run_command_with_live_output(command, cwd=None, shell=True):
     except Exception as e:
         logger.error(f"Error running command with live output: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка выполнения команды: {str(e)}")
+        print_error(f"Error running command: {str(e)}")
         return 1, command_log_file
 
 def check_root():
-    """Проверка на root права."""
+    """Check for root privileges."""
     logger.debug("Checking for root privileges")
     if os.geteuid() != 0:
         logger.error("Script requires root privileges")
-        print_error("Скрипт требует выполнения с правами root (sudo).")
+        print_error("This script requires root privileges (sudo).")
         sys.exit(1)
     logger.debug("Root privileges confirmed")
 
 def check_system_resources():
-    """Проверка системных ресурсов."""
+    """Check system resources."""
     logger.debug("Checking system resources")
     
-    # Проверка доступной памяти
+    # Check available memory
     try:
         with open('/proc/meminfo', 'r') as f:
             mem_info = f.read()
         
-        # Извлекаем информацию о памяти
-        total_mem = int(re.search(r'MemTotal:\s+(\d+)', mem_info).group(1)) // 1024  # МБ
-        free_mem = int(re.search(r'MemFree:\s+(\d+)', mem_info).group(1)) // 1024  # МБ
-        available_mem = int(re.search(r'MemAvailable:\s+(\d+)', mem_info).group(1)) // 1024  # МБ
+        # Extract memory information
+        total_mem = int(re.search(r'MemTotal:\s+(\d+)', mem_info).group(1)) // 1024  # MB
+        free_mem = int(re.search(r'MemFree:\s+(\d+)', mem_info).group(1)) // 1024  # MB
+        available_mem = int(re.search(r'MemAvailable:\s+(\d+)', mem_info).group(1)) // 1024  # MB
         
         logger.debug(f"Total memory: {total_mem} MB")
         logger.debug(f"Free memory: {free_mem} MB")
         logger.debug(f"Available memory: {available_mem} MB")
         
-        if total_mem < 15000:  # Менее 15 ГБ
+        if total_mem < 15000:  # Less than 15 GB
             logger.warning(f"System has only {total_mem} MB of total memory. Minimum recommended is 16 GB.")
-            print_warning(f"Система имеет только {total_mem} МБ общей памяти. Минимально рекомендуется 16 ГБ.")
+            print_warning(f"System has only {total_mem} MB of total memory. Minimum recommended is 16 GB.")
     
     except Exception as e:
         logger.error(f"Error checking memory: {str(e)}")
-        print_warning("Не удалось проверить доступную память.")
+        print_warning("Could not check available memory.")
     
-    # Проверка доступного места на диске
+    # Check available disk space
     try:
         disk_info = os.statvfs('/home')
-        total_space = disk_info.f_frsize * disk_info.f_blocks // (1024 * 1024 * 1024)  # ГБ
-        free_space = disk_info.f_frsize * disk_info.f_bfree // (1024 * 1024 * 1024)  # ГБ
+        total_space = disk_info.f_frsize * disk_info.f_blocks // (1024 * 1024 * 1024)  # GB
+        free_space = disk_info.f_frsize * disk_info.f_bfree // (1024 * 1024 * 1024)  # GB
         
         logger.debug(f"Total disk space: {total_space} GB")
         logger.debug(f"Free disk space: {free_space} GB")
         
-        if free_space < 500:  # Менее 500 ГБ
+        if free_space < 500:  # Less than 500 GB
             logger.warning(f"System has only {free_space} GB of free disk space. Minimum recommended is 500 GB.")
-            print_warning(f"Система имеет только {free_space} ГБ свободного места на диске. Минимально рекомендуется 500 ГБ.")
+            print_warning(f"System has only {free_space} GB of free disk space. Minimum recommended is 500 GB.")
     
     except Exception as e:
         logger.error(f"Error checking disk space: {str(e)}")
-        print_warning("Не удалось проверить доступное место на диске.")
+        print_warning("Could not check available disk space.")
     
-    # Проверка количества процессоров
+    # Check number of processors
     try:
         cpu_count = os.cpu_count()
         logger.debug(f"CPU count: {cpu_count}")
         
         if cpu_count < 4:
             logger.warning(f"System has only {cpu_count} CPU cores. Minimum recommended is 4 cores.")
-            print_warning(f"Система имеет только {cpu_count} ядер CPU. Минимально рекомендуется 4 ядра.")
+            print_warning(f"System has only {cpu_count} CPU cores. Minimum recommended is 4 cores.")
     
     except Exception as e:
         logger.error(f"Error checking CPU count: {str(e)}")
-        print_warning("Не удалось проверить количество процессоров.")
+        print_warning("Could not check number of processors.")
     
     logger.debug("System resource check completed")
 
 def install_dependencies():
-    """Установка необходимых зависимостей."""
-    print_step("Установка необходимых пакетов...")
+    """Install required dependencies."""
+    print_step("Installing necessary packages...")
     logger.debug("Starting dependency installation")
     
     try:
-        # Обновление списка пакетов
+        # Update package lists
         logger.debug("Updating package lists")
         run_command("apt update")
         
-        # Установка необходимых пакетов
+        # Install required packages
         logger.debug("Installing required packages")
         run_command("apt install -y git wget curl openjdk-8-jdk maven")
         
-        # Проверка установки
+        # Check installation
         for package in ["git", "wget", "curl", "java"]:
             version_cmd = f"{package} --version"
             if package == "java":
@@ -311,22 +309,22 @@ def install_dependencies():
             except Exception as e:
                 logger.warning(f"Could not get {package} version: {str(e)}")
         
-        print_success("Пакеты установлены")
+        print_success("Packages installed")
         logger.debug("Dependencies installed successfully")
     
     except Exception as e:
         logger.error(f"Failed to install dependencies: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Не удалось установить зависимости: {str(e)}")
+        print_error(f"Failed to install dependencies: {str(e)}")
         sys.exit(1)
 
 def configure_java():
-    """Настройка Java 8 как основной версии."""
-    print_step("Настройка Java 8...")
+    """Configure Java 8 as the main version."""
+    print_step("Configuring Java 8...")
     logger.debug("Starting Java 8 configuration")
     
     try:
-        # Проверка установленных версий Java
+        # Check installed Java versions
         logger.debug("Checking installed Java versions")
         java_versions_output = run_command("update-alternatives --list java", check=False)
         logger.debug(f"Installed Java versions: {java_versions_output}")
@@ -334,10 +332,10 @@ def configure_java():
         if java_versions_output and "java-8" in java_versions_output:
             logger.debug("Java 8 is installed, configuring as default")
             
-            # Получение списка опций Java
+            # Get Java configuration options
             logger.debug("Getting Java configuration options")
             java_config_cmd = "update-alternatives --config java"
-            print_debug(f"Получение списка опций Java: {java_config_cmd}")
+            print_debug(f"Getting Java configuration options: {java_config_cmd}")
             
             process = subprocess.Popen(
                 java_config_cmd,
@@ -353,7 +351,7 @@ def configure_java():
             if stderr:
                 logger.warning(f"Java configuration stderr: {stderr}")
             
-            # Поиск опции Java 8
+            # Find Java 8 option
             lines = stdout.strip().split('\n')
             java8_option = None
             
@@ -367,14 +365,14 @@ def configure_java():
                         logger.debug(f"Java 8 option: {java8_option}")
             
             if java8_option:
-                # Установка Java 8 через echo
+                # Set Java 8 via echo
                 logger.debug(f"Setting Java 8 as default using option {java8_option}")
                 run_command(f"echo {java8_option} | update-alternatives --config java", shell=True)
                 
-                # Настройка javac
+                # Configure javac
                 logger.debug("Configuring javac")
                 javac_config_cmd = "update-alternatives --config javac"
-                print_debug(f"Получение списка опций javac: {javac_config_cmd}")
+                print_debug(f"Getting javac configuration options: {javac_config_cmd}")
                 
                 process = subprocess.Popen(
                     javac_config_cmd,
@@ -390,7 +388,7 @@ def configure_java():
                 if stderr:
                     logger.warning(f"Javac configuration stderr: {stderr}")
                 
-                # Поиск опции Javac 8
+                # Find Javac 8 option
                 lines = stdout.strip().split('\n')
                 javac8_option = None
                 
@@ -407,77 +405,77 @@ def configure_java():
                     logger.debug(f"Setting Javac 8 as default using option {javac8_option}")
                     run_command(f"echo {javac8_option} | update-alternatives --config javac", shell=True)
         
-        # Проверка версии Java
+        # Check Java version
         logger.debug("Checking current Java version")
         java_version = run_command("java -version 2>&1", check=False, shell=True)
         logger.debug(f"Current Java version: {java_version}")
         
         if java_version and "1.8" not in java_version:
             logger.warning("Java 8 is not set as the main version. Setting manually...")
-            print_warning("Java 8 не установлена как основная версия. Установка вручную...")
+            print_warning("Java 8 is not set as the main version. Setting manually...")
             
-            # Установка Java 8 по умолчанию через update-alternatives
+            # Set Java 8 as default via update-alternatives
             logger.debug("Setting Java 8 manually")
             run_command("update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java")
             run_command("update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac")
         
-        # Повторная проверка
+        # Verify again
         logger.debug("Verifying Java 8 configuration")
         java_version = run_command("java -version 2>&1 | grep version", shell=True)
         logger.debug(f"Java version after configuration: {java_version}")
         
         if "1.8" in java_version:
-            print_success("Java 8 настроена как основная версия")
+            print_success("Java 8 configured as main version")
             logger.debug("Java 8 configured as main version")
         else:
             logger.error("Failed to configure Java 8")
-            print_error("Не удалось настроить Java 8")
+            print_error("Failed to configure Java 8")
             sys.exit(1)
     
     except Exception as e:
         logger.error(f"Error configuring Java 8: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка настройки Java 8: {str(e)}")
+        print_error(f"Error configuring Java 8: {str(e)}")
         sys.exit(1)
 
 def find_latest_backup_url():
-    """Поиск URL последнего доступного бэкапа."""
+    """Find URL of the latest available backup."""
     ARCHIVE_NAME = "LiteFullNode_output-directory.tgz"
     
-    print_step("Поиск последнего доступного бэкапа...")
+    print_step("Searching for the latest available backup...")
     logger.debug(f"Searching for latest backup at {BASE_URL}")
     
     try:
-        # Получаем содержимое страницы
+        # Get page content
         logger.debug("Fetching base URL content")
         response = requests.get(BASE_URL)
         response.raise_for_status()
         
-        # Используем регулярные выражения для поиска директорий backup*
+        # Use regular expressions to find backup* directories
         logger.debug("Parsing page content for backup directories")
         backup_dirs = re.findall(r'href="(backup\d{8})/"', response.text)
         logger.debug(f"Found backup directories: {backup_dirs}")
         
         if not backup_dirs:
             logger.warning("No backup directories found. Using default value.")
-            print_warning("Директории бэкапов не найдены. Используем значение по умолчанию.")
+            print_warning("No backup directories found. Using default value.")
             return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
         
-        # Сортируем и берем последний (самый новый) бэкап
+        # Sort and take the latest (newest) backup
         latest_backup = sorted(backup_dirs)[-1]
         logger.debug(f"Latest backup directory: {latest_backup}")
-        print_success(f"Найден последний бэкап: {latest_backup}")
+        print_success(f"Found latest backup: {latest_backup}")
         
-        # Формируем полный URL для скачивания
+        # Form full download URL
         download_url = f"{BASE_URL}{latest_backup}/{ARCHIVE_NAME}"
         logger.debug(f"Full download URL: {download_url}")
         
-        # Проверяем доступность файла
+        # Check file availability
         logger.debug("Checking file availability")
         test_response = requests.head(download_url)
         if test_response.status_code != 200:
             logger.warning(f"File {download_url} is not available. Using default value.")
-            print_warning(f"Файл {download_url} недоступен. Используем значение по умолчанию.")
+            print_warning(f"File {download_url} is not available. Using default value.")
             return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
         
         logger.debug(f"File is available, status code: {test_response.status_code}")
@@ -486,21 +484,21 @@ def find_latest_backup_url():
     except Exception as e:
         logger.error(f"Error finding latest backup: {str(e)}")
         logger.error(traceback.format_exc())
-        print_warning(f"Ошибка при поиске последнего бэкапа: {str(e)}. Используем значение по умолчанию.")
+        print_warning(f"Error finding latest backup: {str(e)}. Using default value.")
         return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
 
 def download_and_extract_db():
-    """Загрузка и распаковка архива базы данных."""
-    print_step("Загрузка архива базы данных...")
+    """Download and extract database archive."""
+    print_step("Downloading database archive...")
     logger.debug("Starting database archive download and extraction")
     
     try:
-        # Получаем актуальный URL для скачивания
+        # Get actual download URL
         download_url = find_latest_backup_url()
         logger.debug(f"Download URL determined: {download_url}")
-        print(f"URL для скачивания: {download_url}")
+        print(f"Download URL: {download_url}")
         
-        # Создание директории для вывода, если не существует
+        # Create output directory if it doesn't exist
         logger.debug(f"Creating output directory: {OUTPUT_DIR}")
         if not os.path.exists(OUTPUT_DIR):
             os.makedirs(OUTPUT_DIR)
@@ -508,20 +506,20 @@ def download_and_extract_db():
         else:
             logger.debug("Output directory already exists")
         
-        # Имя файла архива
+        # Archive file name
         archive_name = os.path.basename(download_url)
         archive_path = f"/tmp/{archive_name}"
         logger.debug(f"Archive path: {archive_path}")
         
-        # Загрузка архива с индикатором прогресса
+        # Download archive with progress indicator
         try:
             logger.debug(f"Starting download from {download_url}")
-            print(f"Загрузка {download_url}...")
+            print(f"Downloading {download_url}...")
             
             response = requests.get(download_url, stream=True)
             response.raise_for_status()
             
-            # Получаем размер файла, если сервер его предоставляет
+            # Get file size if server provides it
             total_size = int(response.headers.get('content-length', 0))
             logger.debug(f"Total file size: {total_size} bytes")
             
@@ -535,13 +533,13 @@ def download_and_extract_db():
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        # Выводим прогресс, если известен общий размер
+                        # Show progress if total size is known
                         if total_size > 0:
                             elapsed_time = time.time() - start_time
                             percent = downloaded / total_size * 100
                             speed = downloaded / (1024 * 1024 * elapsed_time) if elapsed_time > 0 else 0
                             
-                            # Логируем каждые 5% прогресса
+                            # Log every 5% progress
                             if int(percent) % 5 == 0:
                                 logger.debug(f"Download progress: {percent:.1f}% ({downloaded}/{total_size} bytes, {speed:.2f} MB/s)")
                             
@@ -556,62 +554,62 @@ def download_and_extract_db():
             
             download_time = time.time() - start_time
             logger.debug(f"Download completed in {download_time:.2f} seconds")
-            print_success(f"Архив успешно загружен за {download_time:.2f} секунд")
+            print_success(f"Archive successfully downloaded in {download_time:.2f} seconds")
         
         except Exception as e:
             logger.error(f"Error downloading archive: {str(e)}")
             logger.error(traceback.format_exc())
-            print_error(f"Ошибка загрузки архива: {str(e)}")
+            print_error(f"Error downloading archive: {str(e)}")
             sys.exit(1)
         
-        # Распаковка архива
-        print_step("Распаковка архива базы данных...")
+        # Extract archive
+        print_step("Extracting database archive...")
         logger.debug(f"Extracting archive: {archive_path} to {OUTPUT_DIR}")
         
         try:
             with tarfile.open(archive_path) as tar:
-                # Проверка безопасных путей при распаковке
+                # Check for safe paths during extraction
                 logger.debug("Checking for safe paths in archive")
                 for member in tar.getmembers():
                     if member.name.startswith(('/')) or '..' in member.name:
                         logger.error(f"Unsafe path in archive: {member.name}")
-                        print_error(f"Небезопасный путь в архиве: {member.name}")
+                        print_error(f"Unsafe path in archive: {member.name}")
                         sys.exit(1)
                 
-                # Подсчитываем общее количество файлов для индикатора прогресса
+                # Count total number of files for progress indicator
                 total_files = len(tar.getmembers())
                 logger.debug(f"Total files in archive: {total_files}")
-                print(f"Распаковка {total_files} файлов...")
+                print(f"Extracting {total_files} files...")
                 
-                # Извлекаем файлы с индикатором прогресса
+                # Extract files with progress indicator
                 start_time = time.time()
                 for i, member in enumerate(tar.getmembers(), 1):
                     tar.extract(member, path=OUTPUT_DIR)
                     
-                    # Логируем каждые 5% прогресса
+                    # Log every 5% progress
                     percent = i / total_files * 100
                     if int(percent) % 5 == 0:
                         logger.debug(f"Extraction progress: {percent:.1f}% ({i}/{total_files} files)")
                     
-                    # Обновляем прогресс каждые 100 файлов или на последнем файле
+                    # Update progress every 100 files or on last file
                     if i % 100 == 0 or i == total_files:
                         progress = int(i / total_files * 100)
-                        sys.stdout.write(f"\rРаспаковка: {progress}% ({i}/{total_files} файлов)")
+                        sys.stdout.write(f"\rExtraction: {progress}% ({i}/{total_files} files)")
                         sys.stdout.flush()
                 
                 sys.stdout.write('\n')
                 
                 extraction_time = time.time() - start_time
                 logger.debug(f"Extraction completed in {extraction_time:.2f} seconds")
-                print_success(f"Архив успешно распакован за {extraction_time:.2f} секунд")
+                print_success(f"Archive successfully extracted in {extraction_time:.2f} seconds")
         
         except Exception as e:
             logger.error(f"Error extracting archive: {str(e)}")
             logger.error(traceback.format_exc())
-            print_error(f"Ошибка распаковки архива: {str(e)}")
+            print_error(f"Error extracting archive: {str(e)}")
             sys.exit(1)
         
-        # Удаление архива
+        # Remove archive
         logger.debug(f"Removing downloaded archive: {archive_path}")
         os.remove(archive_path)
         logger.debug("Archive file removed")
@@ -619,37 +617,37 @@ def download_and_extract_db():
     except Exception as e:
         logger.error(f"Error in download_and_extract_db function: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка при загрузке и распаковке базы данных: {str(e)}")
+        print_error(f"Error downloading and extracting database: {str(e)}")
         sys.exit(1)
 
 def clone_and_build_java_tron():
-    """Клонирование и сборка java-tron."""
-    print_step("Клонирование и сборка java-tron...")
+    """Clone and build java-tron."""
+    print_step("Cloning and building java-tron...")
     logger.debug("Starting java-tron cloning and building")
     
     try:
-        # Проверка наличия директории
+        # Check if directory exists
         logger.debug(f"Checking if directory exists: {TRON_DIR}")
         if os.path.exists(TRON_DIR):
             logger.debug(f"Directory {TRON_DIR} already exists")
-            print_warning(f"Директория {TRON_DIR} уже существует. Пропускаем клонирование.")
+            print_warning(f"Directory {TRON_DIR} already exists. Skipping cloning.")
         else:
-            # Создаем директорию, если она не существует
+            # Create directory if it doesn't exist
             logger.debug(f"Creating directory: {TRON_DIR}")
             os.makedirs(TRON_DIR, exist_ok=True)
             
-            # Клонирование репозитория
+            # Clone repository
             logger.debug("Cloning java-tron repository")
             clone_cmd = f"git clone https://github.com/tronprotocol/java-tron.git {TRON_DIR}"
-            print(f"Выполняем команду: {clone_cmd}")
+            print(f"Executing command: {clone_cmd}")
             run_command(clone_cmd)
             logger.debug("Repository cloning completed")
         
-        # Переход в директорию и checkout master ветки
+        # Change to directory and checkout master branch
         logger.debug(f"Changing directory to {TRON_DIR}")
         os.chdir(TRON_DIR)
         
-        # Выполняем git fetch и checkout
+        # Run git fetch and checkout
         logger.debug("Fetching latest changes")
         run_command("git fetch")
         
@@ -657,7 +655,7 @@ def clone_and_build_java_tron():
         checkout_result = run_command("git checkout -t origin/master", check=False)
         logger.debug(f"Checkout result: {checkout_result}")
         
-        # Добавляем зависимость для javax.annotation.Generated
+        # Add dependency for javax.annotation.Generated
         gradle_build_file = f"{TRON_DIR}/build.gradle"
         logger.debug(f"Checking build.gradle file: {gradle_build_file}")
         
@@ -666,7 +664,7 @@ def clone_and_build_java_tron():
             with open(gradle_build_file, "r") as file:
                 content = file.read()
             
-            # Проверяем, нет ли уже этой зависимости
+            # Check if dependency already exists
             if "javax.annotation:javax.annotation-api" not in content:
                 logger.debug("Adding javax.annotation dependency to build.gradle")
                 dependency_line = "dependencies {\n    implementation 'javax.annotation:javax.annotation-api:1.3.2'"
@@ -680,60 +678,60 @@ def clone_and_build_java_tron():
         else:
             logger.warning(f"build.gradle file not found at {gradle_build_file}")
         
-        # Проверяем права на gradlew
+        # Check gradlew permissions
         logger.debug("Checking gradlew permissions")
         gradlew_path = f"{TRON_DIR}/gradlew"
         if os.path.exists(gradlew_path):
             os.chmod(gradlew_path, os.stat(gradlew_path).st_mode | stat.S_IEXEC)
             logger.debug("Set executable permission for gradlew")
         
-        # Сборка проекта с подробным выводом
-        print_step("Сборка java-tron (это может занять некоторое время)...")
+        # Build project with detailed output
+        print_step("Building java-tron (this may take some time)...")
         logger.debug("Starting java-tron build")
         
-        # Создаем файл для логов сборки
-        build_log_file = f"{TRON_DIR}/build.log"
+        # Create file for build logs
+        build_log_file = f"{LOG_DIR}/build.log"
         logger.debug(f"Build log will be saved to: {build_log_file}")
         
-        print("Сборка запущена, ожидайте (может занять 10-20 минут)...")
-        print("Подробный вывод сборки будет сохранен в лог-файл.")
+        print("Build started, please wait (may take 10-20 minutes)...")
+        print("Detailed build output will be saved to log file.")
         
-        # Запускаем сборку с выводом в реальном времени
+        # Run build with real-time output
         build_cmd = "./gradlew clean build -x test --info --stacktrace"
         logger.debug(f"Running build command: {build_cmd}")
         
         return_code, live_log_file = run_command_with_live_output(build_cmd, cwd=TRON_DIR)
         
-        # Проверка успешности сборки
+        # Check build success
         if return_code != 0 or not os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
             logger.error(f"java-tron build failed with return code {return_code}")
-            print_error(f"Сборка java-tron не удалась (код ошибки: {return_code}).")
-            print_error(f"Проверьте логи сборки: {live_log_file}")
+            print_error(f"java-tron build failed (error code: {return_code}).")
+            print_error(f"Check build logs: {live_log_file}")
             sys.exit(1)
         
-        # Проверяем наличие файла FullNode.jar
+        # Check for FullNode.jar file
         if os.path.exists(f"{TRON_DIR}/build/libs/FullNode.jar"):
-            jar_size = os.path.getsize(f"{TRON_DIR}/build/libs/FullNode.jar") // (1024 * 1024)  # МБ
+            jar_size = os.path.getsize(f"{TRON_DIR}/build/libs/FullNode.jar") // (1024 * 1024)  # MB
             logger.debug(f"FullNode.jar found, size: {jar_size} MB")
-            print_success(f"java-tron успешно собран, размер FullNode.jar: {jar_size} МБ")
+            print_success(f"java-tron built successfully, FullNode.jar size: {jar_size} MB")
         else:
             logger.error("FullNode.jar not found after build")
-            print_error("FullNode.jar не найден после сборки.")
+            print_error("FullNode.jar not found after build.")
             sys.exit(1)
     
     except Exception as e:
         logger.error(f"Error in clone_and_build_java_tron function: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка при клонировании и сборке java-tron: {str(e)}")
+        print_error(f"Error cloning and building java-tron: {str(e)}")
         sys.exit(1)
 
 def create_config_files():
-    """Создание конфигурационных файлов."""
-    print_step("Создание конфигурационных файлов...")
+    """Create configuration files."""
+    print_step("Creating configuration files...")
     logger.debug("Starting configuration files creation")
     
     try:
-        # Содержимое конфигурационного файла
+        # Configuration file content
         logger.debug(f"Creating configuration file: {CONFIG_FILE}")
         config_content = """storage {
   # Directory for storing persistent data
@@ -1475,27 +1473,27 @@ event.subscribe = {
     }
 }"""
         
-        # Запись конфигурационного файла
+        # Write configuration file
         with open(CONFIG_FILE, "w") as f:
             f.write(config_content)
         logger.debug("Configuration file created")
         
-        # Содержимое стартового скрипта
+        # Startup script content
         logger.debug(f"Creating startup script: {START_SCRIPT}")
         start_script_content = """#!/bin/bash
 java -Xmx24g -XX:+UseConcMarkSweepGC -jar /home/java-tron/build/libs/FullNode.jar -c /home/java-tron/last-conf.conf -d /home/java-tron/output-directory/
 """
         
-        # Запись стартового скрипта
+        # Write startup script
         with open(START_SCRIPT, "w") as f:
             f.write(start_script_content)
         logger.debug("Startup script created")
         
-        # Устанавливаем права на выполнение
+        # Set execute permissions
         logger.debug("Setting execute permissions for startup script")
         os.chmod(START_SCRIPT, os.stat(START_SCRIPT).st_mode | stat.S_IEXEC)
         
-        # Содержимое systemd сервиса
+        # systemd service content
         logger.debug(f"Creating systemd service file: {SYSTEMD_SERVICE}")
         systemd_service_content = """[Unit]
 Description=TRON Full Node
@@ -1514,12 +1512,12 @@ LimitNOFILE=500000
 WantedBy=multi-user.target
 """
         
-        # Запись systemd сервиса
+        # Write systemd service
         with open(SYSTEMD_SERVICE, "w") as f:
             f.write(systemd_service_content)
         logger.debug("Systemd service file created")
         
-        # Создание README.md
+        # Create README.md
         logger.debug("Creating README.md file")
         readme_content = """# TRON Lite Full Node
 
@@ -1587,87 +1585,87 @@ journalctl -u tron-node -f
 
 Installation logs can be found at:
 ```bash
-/var/log/tron-node/installation.log
+[SCRIPT_DIR]/installation.log
 ```
 
 ## Debug Information
 
 For detailed debug information, check:
 ```bash
-/var/log/tron-node/command_*.log
+[SCRIPT_DIR]/command_*.log
 ```
 """
         
-        # Запись README.md
+        # Write README.md
         with open(f"{TRON_DIR}/README.md", "w") as f:
             f.write(readme_content)
         logger.debug("README.md file created")
         
-        print_success("Конфигурационные файлы созданы")
+        print_success("Configuration files created")
     
     except Exception as e:
         logger.error(f"Error creating configuration files: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка создания конфигурационных файлов: {str(e)}")
+        print_error(f"Error creating configuration files: {str(e)}")
         sys.exit(1)
 
 def setup_systemd():
-    """Настройка автозапуска через systemd."""
-    print_step("Настройка автозапуска через systemd...")
+    """Configure autostart via systemd."""
+    print_step("Setting up autostart via systemd...")
     logger.debug("Starting systemd configuration")
     
     try:
-        # Перезагрузка systemd для обнаружения нового сервиса
+        # Reload systemd to detect new service
         logger.debug("Reloading systemd daemon")
         run_command("systemctl daemon-reload")
         
-        # Включение автозапуска
+        # Enable autostart
         logger.debug("Enabling tron-node service")
         run_command("systemctl enable tron-node")
         
-        # Проверка статуса
+        # Check status
         logger.debug("Checking service status")
         service_status = run_command("systemctl is-enabled tron-node", check=False)
         logger.debug(f"Service status: {service_status}")
         
         if service_status == "enabled":
-            print_success("Автозапуск настроен")
+            print_success("Autostart configured")
             logger.debug("Autostart configured successfully")
         else:
-            print_warning("Не удалось настроить автозапуск. Текущий статус: " + service_status)
+            print_warning("Failed to configure autostart. Current status: " + service_status)
             logger.warning(f"Failed to configure autostart. Current status: {service_status}")
     
     except Exception as e:
         logger.error(f"Error configuring systemd: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка настройки systemd: {str(e)}")
+        print_error(f"Error configuring systemd: {str(e)}")
         sys.exit(1)
 
 def start_node():
-    """Запуск ноды."""
-    print_step("Запуск TRON ноды...")
+    """Start the node."""
+    print_step("Starting TRON node...")
     logger.debug("Starting TRON node")
     
     try:
-        # Запуск сервиса
+        # Start service
         logger.debug("Starting tron-node service")
         run_command("systemctl start tron-node")
         
-        # Проверка статуса
+        # Check status
         logger.debug("Waiting 5 seconds before checking status")
-        time.sleep(5)  # Даем время на запуск
+        time.sleep(5)  # Give time to start
         
         status = run_command("systemctl is-active tron-node", check=False)
         logger.debug(f"Service active status: {status}")
         
         if status == "active":
-            print_success("TRON нода успешно запущена!")
+            print_success("TRON node started successfully!")
             logger.debug("TRON node started successfully")
         else:
-            print_warning("TRON нода запускается, проверьте статус через несколько минут с помощью 'systemctl status tron-node'")
+            print_warning("TRON node is starting, check status in a few minutes with 'systemctl status tron-node'")
             logger.warning("TRON node is starting, status should be checked later")
             
-        # Проверка лог-файлов
+        # Check log files
         logger.debug("Checking for tron-node service logs")
         service_logs = run_command("journalctl -u tron-node -n 10 --no-pager", check=False)
         logger.debug(f"Recent service logs:\n{service_logs}")
@@ -1675,55 +1673,55 @@ def start_node():
     except Exception as e:
         logger.error(f"Error starting node: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка запуска ноды: {str(e)}")
+        print_error(f"Error starting node: {str(e)}")
         sys.exit(1)
 
 def check_node_status():
-    """Проверка статуса ноды после запуска."""
-    print_step("Проверка статуса TRON ноды...")
+    """Check node status after startup."""
+    print_step("Checking TRON node status...")
     logger.debug("Checking TRON node status")
     
     try:
-        # Проверка статуса systemd-сервиса
+        # Check systemd service status
         logger.debug("Checking systemd service status")
         systemd_status = run_command("systemctl status tron-node --no-pager", check=False)
         logger.debug(f"Systemd status output:\n{systemd_status}")
         
-        # Проверка запущенных процессов
+        # Check running processes
         logger.debug("Checking running processes")
         processes = run_command("ps aux | grep [F]ullNode", check=False)
         logger.debug(f"Running processes:\n{processes}")
         
-        # Проверка открытых портов
+        # Check open ports
         logger.debug("Checking open ports")
         ports = run_command("netstat -tuln | grep -E '8090|18888|50051'", check=False, shell=True)
         logger.debug(f"Open ports:\n{ports}")
         
-        # Пробуем подключиться к API ноды
+        # Try to connect to node API
         try:
             logger.debug("Trying to connect to node API")
-            print("Попытка подключения к API ноды (может не работать сразу)...")
+            print("Attempting to connect to node API (may not work immediately)...")
             
             api_response = run_command("curl -s http://127.0.0.1:8090/wallet/getnodeinfo", check=False)
             logger.debug(f"API response:\n{api_response}")
             
-            if api_response and len(api_response) > 10:  # Некоторый ответ получен
-                print_success("Нода отвечает на API запросы!")
+            if api_response and len(api_response) > 10:  # Some response received
+                print_success("Node is responding to API requests!")
                 logger.debug("Node is responding to API requests")
             else:
-                print_warning("Нода еще не отвечает на API запросы. Это нормально, если она только что запущена.")
+                print_warning("Node is not yet responding to API requests. This is normal if it was just started.")
                 logger.warning("Node is not yet responding to API requests")
         except Exception as e:
             logger.warning(f"Error connecting to API: {str(e)}")
-            print_warning(f"Ошибка подключения к API: {str(e)}")
+            print_warning(f"Error connecting to API: {str(e)}")
     
     except Exception as e:
         logger.error(f"Error checking node status: {str(e)}")
         logger.error(traceback.format_exc())
-        print_error(f"Ошибка проверки статуса ноды: {str(e)}")
+        print_error(f"Error checking node status: {str(e)}")
 
 def main():
-    """Основная функция скрипта."""
+    """Main function of the script."""
     try:
         start_time = time.time()
         logger.info("==========================================")
@@ -1731,38 +1729,38 @@ def main():
         logger.info("==========================================")
         
         print(f"{GREEN}===========================================")
-        print(f"   Установка TRON Lite Full Node   ")
+        print(f"   TRON Lite Full Node Installation   ")
         print(f"==========================================={RESET}")
-        print(f"Логи установки: {LOG_FILE}")
+        print(f"Installation logs: {LOG_FILE}")
         
-        # Проверка root прав
+        # Check root privileges
         check_root()
         
-        # Проверка системных ресурсов
+        # Check system resources
         check_system_resources()
         
-        # Установка зависимостей
+        # Install dependencies
         install_dependencies()
         
-        # Настройка Java 8
+        # Configure Java 8
         configure_java()
         
-        # Клонирование и сборка java-tron
+        # Clone and build java-tron
         clone_and_build_java_tron()
         
-        # Загрузка и распаковка архива базы данных
+        # Download and extract database archive
         download_and_extract_db()
         
-        # Создание конфигурационных файлов
+        # Create configuration files
         create_config_files()
         
-        # Настройка автозапуска
+        # Configure autostart
         setup_systemd()
         
-        # Запуск ноды
+        # Start node
         start_node()
         
-        # Проверка статуса ноды
+        # Check node status
         check_node_status()
         
         end_time = time.time()
@@ -1770,19 +1768,19 @@ def main():
         logger.info(f"Installation completed in {installation_time:.2f} seconds")
         
         print(f"\n{GREEN}===========================================")
-        print(f"   TRON Lite Full Node успешно установлена!   ")
+        print(f"   TRON Lite Full Node successfully installed!   ")
         print(f"==========================================={RESET}")
-        print(f"\nДокументация находится в файле: {TRON_DIR}/README.md")
-        print(f"Лог установки: {LOG_FILE}")
-        print(f"Для проверки статуса ноды выполните: systemctl status tron-node")
-        print(f"Для просмотра логов выполните: journalctl -u tron-node -f")
-        print(f"Установка завершена за {installation_time:.2f} секунд")
+        print(f"\nDocumentation can be found in: {TRON_DIR}/README.md")
+        print(f"Installation log: {LOG_FILE}")
+        print(f"To check node status run: systemctl status tron-node")
+        print(f"To view logs run: journalctl -u tron-node -f")
+        print(f"Installation completed in {installation_time:.2f} seconds")
     
     except Exception as e:
         logger.critical(f"Critical error during installation: {str(e)}")
         logger.critical(traceback.format_exc())
-        print_error(f"Критическая ошибка при установке: {str(e)}")
-        print(f"Посмотрите подробные логи: {LOG_FILE}")
+        print_error(f"Critical error during installation: {str(e)}")
+        print(f"See detailed logs: {LOG_FILE}")
         sys.exit(1)
 
 if __name__ == "__main__":
