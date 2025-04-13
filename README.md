@@ -32,12 +32,14 @@ cd lite_Tron_Node
 chmod +x install_tron_node.py
 
 # Run the script with root privileges
-sudo python3 install_tron_node.py
-or
+
+```
 sudo nohup python3 install_tron_node.py > /home/lite_Tron_Node/tron-install.log 2>&1 &
+or
+sudo python3 install_tron_node.py
 ```
 ### Check logs
-```bash
+```
 tail -f /home/lite_Tron_Node/tron-install.log
 ```
 ### Check script
