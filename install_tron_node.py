@@ -15,7 +15,6 @@ import json
 from datetime import datetime
 import traceback
 import argparse
-import glob
 
 # Get absolute path of the script directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -59,10 +58,8 @@ SYSTEMD_SERVICE = "/etc/systemd/system/tron-node.service"
 VSCODE_SETTINGS_DIR = f"{TRON_DIR}/.vscode"
 VSCODE_SETTINGS_FILE = f"{VSCODE_SETTINGS_DIR}/settings.json"
 
-# Base URLs for downloading archive
-PRIMARY_SERVER = "http://34.86.86.229/"
-SECONDARY_SERVER = "http://34.143.247.77/"
-FALLBACK_URL = "http://34.86.86.229/backup20250410/LiteFullNode_output-directory.tgz"
+# Base URL for downloading archive
+BASE_URL = "http://34.86.86.229/"
 
 def print_step(message):
     """Print installation step."""
@@ -130,74 +127,19 @@ def check_root():
         sys.exit(1)
     logger.debug("Root privileges confirmed")
 
-def detect_java_home():
-    """Detect Java home directory."""
-    print_step("Detecting Java home directory...")
-    
-    # Try using the readlink command to find the real Java path
-    java_path = run_command("readlink -f $(which java)", shell=True, check=False)
-    if java_path:
-        # Remove '/bin/java' from the path
-        java_home = os.path.dirname(os.path.dirname(java_path))
-        if os.path.exists(java_home) and os.path.exists(os.path.join(java_home, "bin", "java")):
-            print_success(f"Found Java home at: {java_home}")
-            return java_home
-    
-    # Try standard locations
-    standard_paths = [
-        "/usr/lib/jvm/java-8-openjdk-amd64",
-        "/usr/lib/jvm/java-1.8.0-openjdk-amd64",
-        "/usr/lib/jvm/java-8-oracle",
-        "/usr/lib/jvm/default-java"
-    ]
-    
-    for path in standard_paths:
-        if os.path.exists(path) and os.path.exists(os.path.join(path, "bin", "java")):
-            print_success(f"Found Java home at: {path}")
-            return path
-    
-    # Fallback to default
-    print_warning("Could not detect Java home directory. Using default path.")
-    return "/usr/lib/jvm/java-8-openjdk-amd64"
-
 def install_dependencies():
     """Install necessary dependencies."""
     print_step("Installing necessary packages...")
-    
-    try:
-        # Update package lists
-        run_command("apt update")
-        
-        # Install required packages
-        run_command("apt install -y git wget curl openjdk-8-jdk maven aria2 axel")
-        
-        # Check installation of key packages
-        for package in ["git", "wget", "curl", "java", "aria2c", "axel"]:
-            cmd = f"which {package}"
-            if package == "java":
-                cmd = "which java"
-            elif package == "aria2c":
-                cmd = "which aria2c"
-            
-            path = run_command(cmd, check=False)
-            if path:
-                print_success(f"Found {package} at: {path}")
-            else:
-                print_warning(f"Could not find {package}. Some functionality may be limited.")
-        
-        print_success("All required packages installed")
-    
-    except Exception as e:
-        logger.error(f"Error installing dependencies: {str(e)}")
-        print_error(f"Error installing dependencies: {str(e)}")
-        print_warning("Continuing anyway, but installation may fail.")
+    run_command("apt update")
+    run_command("apt install -y git wget curl openjdk-8-jdk maven")
+    print_success("Packages installed")
 
 def configure_java():
     """Configure Java 8 as the main version."""
     print_step("Configuring Java 8...")
     
     # Set JAVA_HOME environment variable
-    java_home = detect_java_home()
+    java_home = "/usr/lib/jvm/java-8-openjdk-amd64"
     os.environ["JAVA_HOME"] = java_home
     
     # Export JAVA_HOME globally
@@ -206,129 +148,51 @@ def configure_java():
         f.write('export PATH="$JAVA_HOME/bin:$PATH"\n')
     
     # Set Java 8 as default
-    try:
-        # Find the Java 8 binary
-        java8_path = os.path.join(java_home, "bin", "java")
-        javac8_path = os.path.join(java_home, "bin", "javac")
-        
-        if os.path.exists(java8_path):
-            run_command(f"update-alternatives --set java {java8_path}", check=False)
-        else:
-            print_warning(f"Java binary not found at {java8_path}")
-        
-        if os.path.exists(javac8_path):
-            run_command(f"update-alternatives --set javac {javac8_path}", check=False)
-        else:
-            print_warning(f"Javac binary not found at {javac8_path}")
-        
-        # Verify Java version
-        java_version = run_command("java -version 2>&1", check=False, shell=True)
-        logger.debug(f"Java version: {java_version}")
-        
-        if "1.8" in java_version:
-            print_success("Java 8 configured as main version")
-        else:
-            print_warning("Java version is not 8. This may cause issues.")
+    run_command("update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java", check=False)
+    run_command("update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac", check=False)
     
-    except Exception as e:
-        logger.error(f"Error configuring Java: {str(e)}")
-        print_warning(f"Error configuring Java: {str(e)}")
-        print_warning("Continuing anyway, but build might fail.")
+    print_success("Java 8 configured as main version")
 
-def find_latest_backup_url(server_url):
-    """Find URL of the latest available backup on the specified server."""
+def find_latest_backup_url():
+    """Find URL of the latest available backup."""
     ARCHIVE_NAME = "LiteFullNode_output-directory.tgz"
     
-    print_step(f"Searching for the latest available backup on {server_url}...")
+    print_step("Searching for the latest available backup...")
     
     try:
         # Get page content
-        response = requests.get(server_url, timeout=10)
+        response = requests.get(BASE_URL)
         response.raise_for_status()
         
         # Find backup directories
         backup_dirs = re.findall(r'href="(backup\d{8})/"', response.text)
         
         if not backup_dirs:
-            print_warning(f"No backup directories found on {server_url}.")
-            return None
+            print_warning("No backup directories found. Using default value.")
+            return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
         
         # Get latest backup
         latest_backup = sorted(backup_dirs)[-1]
         print_success(f"Found latest backup: {latest_backup}")
         
         # Form download URL
-        download_url = f"{server_url}{latest_backup}/{ARCHIVE_NAME}"
+        download_url = f"{BASE_URL}{latest_backup}/{ARCHIVE_NAME}"
         
         # Check availability
-        test_response = requests.head(download_url, timeout=10)
+        test_response = requests.head(download_url)
         if test_response.status_code != 200:
-            print_warning(f"File {download_url} is not available.")
-            return None
+            print_warning(f"File {download_url} is not available. Using default value.")
+            return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
         
         return download_url
     
     except Exception as e:
-        print_warning(f"Error finding latest backup on {server_url}: {str(e)}")
-        return None
-
-def download_with_aria2(download_url, archive_path, connections=10):
-    """Download using aria2 with multiple connections."""
-    print_step(f"Attempting to download with aria2 ({connections} connections)...")
-    
-    try:
-        # Ensure output directory exists
-        output_dir = os.path.dirname(archive_path)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Run aria2c command
-        download_cmd = f"cd {output_dir} && aria2c -x{connections} -s{connections} --file-allocation=none '{download_url}' -o '{os.path.basename(archive_path)}'"
-        run_command(download_cmd, shell=True)
-        
-        # Check if file exists
-        if os.path.exists(archive_path):
-            file_size = os.path.getsize(archive_path) / (1024 * 1024)  # Size in MB
-            print_success(f"Download completed. File size: {file_size:.2f} MB")
-            return True
-        else:
-            print_warning(f"Download completed but file not found at {archive_path}")
-            return False
-    
-    except Exception as e:
-        logger.error(f"Error downloading with aria2: {str(e)}")
-        print_warning(f"Failed to download with aria2: {str(e)}")
-        return False
-
-def download_with_wget(download_url, archive_path):
-    """Download using wget (single connection)."""
-    print_step("Attempting to download with wget (single connection)...")
-    
-    try:
-        # Ensure output directory exists
-        output_dir = os.path.dirname(archive_path)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Run wget command
-        download_cmd = f"wget -O '{archive_path}' '{download_url}'"
-        run_command(download_cmd, shell=True)
-        
-        # Check if file exists
-        if os.path.exists(archive_path):
-            file_size = os.path.getsize(archive_path) / (1024 * 1024)  # Size in MB
-            print_success(f"Download completed. File size: {file_size:.2f} MB")
-            return True
-        else:
-            print_warning(f"Download completed but file not found at {archive_path}")
-            return False
-    
-    except Exception as e:
-        logger.error(f"Error downloading with wget: {str(e)}")
-        print_warning(f"Failed to download with wget: {str(e)}")
-        return False
+        print_warning(f"Error finding latest backup: {str(e)}. Using default value.")
+        return f"{BASE_URL}backup20250410/{ARCHIVE_NAME}"
 
 def download_and_extract_db():
-    """Download and extract database archive with multi-server fallback."""
-    print_step("Preparing to download and extract database...")
+    """Download and extract database archive."""
+    print_step("Downloading database archive...")
     
     # Clean up existing output directory to avoid duplication issues
     if os.path.exists(OUTPUT_DIR):
@@ -338,56 +202,22 @@ def download_and_extract_db():
     # Create fresh output directory
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # Define archive path
-    archive_path = "/tmp/tron_backup.tgz"
+    # Get download URL
+    download_url = find_latest_backup_url()
+    print(f"Download URL: {download_url}")
     
-    # Remove any existing archive file (from previous attempts)
-    if os.path.exists(archive_path):
-        try:
-            os.remove(archive_path)
-            print_warning(f"Removed existing archive file: {archive_path}")
-        except Exception as e:
-            print_warning(f"Could not remove existing archive: {str(e)}")
+    # Download file
+    archive_path = f"/tmp/tron_backup.tgz"
+    print(f"Downloading {download_url}...")
     
-    # ====== First try: Primary server with aria2 ======
-    download_success = False
+    run_command(f"wget -O {archive_path} {download_url}", shell=True)
+    print_success("Archive downloaded")
     
-    # Try to get latest backup URL from primary server
-    primary_url = find_latest_backup_url(PRIMARY_SERVER)
-    if primary_url:
-        print_step(f"Attempting to download from primary server: {primary_url}")
-        download_success = download_with_aria2(primary_url, archive_path)
-    
-    # ====== Second try: Secondary server with aria2 ======
-    if not download_success:
-        print_warning("Download from primary server failed. Trying secondary server...")
-        secondary_url = find_latest_backup_url(SECONDARY_SERVER)
-        if secondary_url:
-            print_step(f"Attempting to download from secondary server: {secondary_url}")
-            download_success = download_with_aria2(secondary_url, archive_path)
-    
-    # ====== Third try: Fallback URL with wget ======
-    if not download_success:
-        print_warning("Download from both servers failed. Using fallback URL with wget...")
-        download_success = download_with_wget(FALLBACK_URL, archive_path)
-    
-    # Check if download was successful
-    if not download_success or not os.path.exists(archive_path):
-        print_error("All download attempts failed. Installation cannot continue.")
-        sys.exit(1)
-    
-    print_success("Archive successfully downloaded")
-    
-    # ====== Extract archive ======
+    # Extract archive
     print_step("Extracting database archive...")
     
     try:
-        # Verify archive exists
-        if not os.path.exists(archive_path):
-            print_error(f"Archive file not found at {archive_path}. Extraction failed.")
-            sys.exit(1)
-        
-        # Check archive structure
+        # Check archive structure first
         with tarfile.open(archive_path) as tar:
             # Get all top-level directories in archive
             top_dirs = set()
@@ -400,31 +230,36 @@ def download_and_extract_db():
             
             # Check if there's a nested output-directory
             if 'output-directory' in top_dirs:
-                print_warning("Archive contains nested output-directory, using strip-components method")
-                tar.close()  # Close tarfile before using system tar command
+                print_warning("Archive contains nested output-directory, adjusting extraction path")
                 
-                # Use tar command with strip-components option
-                extract_cmd = f"tar -xzf '{archive_path}' --strip-components=1 -C '{OUTPUT_DIR}'"
-                run_command(extract_cmd, shell=True)
+                # Create a temporary directory for extraction
+                tmp_extract_dir = f"/tmp/tron_extract_{int(time.time())}"
+                os.makedirs(tmp_extract_dir, exist_ok=True)
+                
+                # Extract to temp directory
+                tar.extractall(path=tmp_extract_dir)
+                
+                # Move database from nested structure to correct location
+                nested_db_path = os.path.join(tmp_extract_dir, 'output-directory', 'database')
+                if os.path.exists(nested_db_path):
+                    print(f"Moving database from {nested_db_path} to {OUTPUT_DIR}")
+                    shutil.move(nested_db_path, OUTPUT_DIR)
+                
+                # Cleanup temp directory
+                shutil.rmtree(tmp_extract_dir, ignore_errors=True)
             else:
                 # Normal extraction
-                print_step("Extracting archive normally...")
                 tar.extractall(path=OUTPUT_DIR)
     
     except Exception as e:
         print_error(f"Error during extraction: {str(e)}")
         logger.error(f"Extraction error: {traceback.format_exc()}")
         
-        # Fallback to direct extraction
+        # Fallback to direct extraction without analysis
         print_warning("Falling back to direct extraction")
-        try:
-            extract_cmd = f"tar -xzf '{archive_path}' -C '{OUTPUT_DIR}'"
-            run_command(extract_cmd, shell=True)
-        except Exception as e2:
-            print_error(f"Fatal error during extraction: {str(e2)}")
-            sys.exit(1)
+        run_command(f"tar -xzf {archive_path} -C {OUTPUT_DIR}", shell=True)
     
-    print_success("Archive extraction completed")
+    print_success("Archive extracted")
     
     # Verify database directory exists
     db_path = os.path.join(OUTPUT_DIR, 'database')
@@ -432,11 +267,10 @@ def download_and_extract_db():
         print_warning("Database directory not found at expected location. Searching...")
         
         # Try to find database directory
-        found = False
         for root, dirs, files in os.walk(OUTPUT_DIR):
             if 'database' in dirs:
                 src_path = os.path.join(root, 'database')
-                print_success(f"Found database at {src_path}, moving to correct location")
+                print(f"Found database at {src_path}, moving to correct location")
                 
                 # Remove target if it exists
                 if os.path.exists(db_path):
@@ -444,22 +278,10 @@ def download_and_extract_db():
                 
                 # Move to correct location
                 shutil.move(src_path, OUTPUT_DIR)
-                found = True
                 break
-        
-        if not found:
-            print_error("Database directory not found after extraction. Installation cannot continue.")
-            sys.exit(1)
-    else:
-        print_success(f"Database directory found at {db_path}")
     
     # Remove archive
-    try:
-        if os.path.exists(archive_path):
-            os.remove(archive_path)
-            print_success(f"Removed archive file: {archive_path}")
-    except Exception as e:
-        print_warning(f"Could not remove archive file: {str(e)}")
+    os.remove(archive_path)
 
 def clone_and_build_java_tron():
     """Clone and build java-tron."""
@@ -496,12 +318,10 @@ def clone_and_build_java_tron():
     
     # Build project
     print("Building java-tron (this may take 10-20 minutes)...")
+    print("Build started, output redirected to log file...")
     
     # Export JAVA_HOME
-    java_home = os.environ.get("JAVA_HOME", detect_java_home())
-    build_cmd = f"JAVA_HOME={java_home} ./gradlew clean build -x test"
-    
-    # Run the build command
+    build_cmd = f"JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 ./gradlew clean build -x test"
     build_result = subprocess.run(build_cmd, shell=True, cwd=TRON_DIR)
     
     # Check build success
@@ -529,14 +349,7 @@ def clone_and_build_java_tron():
             print_error("Build failed again. Installation cannot continue.")
             sys.exit(1)
     
-    # Verify FullNode.jar was created
-    jar_path = f"{TRON_DIR}/build/libs/FullNode.jar"
-    if os.path.exists(jar_path):
-        jar_size = os.path.getsize(jar_path) // (1024 * 1024)  # Size in MB
-        print_success(f"java-tron built successfully. FullNode.jar size: {jar_size} MB")
-    else:
-        print_error("FullNode.jar not found. Build may have failed.")
-        sys.exit(1)
+    print_success("java-tron built successfully")
 
 def setup_vscode_optimization():
     """Set up VSCode optimization."""
@@ -545,7 +358,7 @@ def setup_vscode_optimization():
     # Create .vscode directory
     os.makedirs(VSCODE_SETTINGS_DIR, exist_ok=True)
     
-    # VSCode settings
+    # VSCode settings - Using Python True instead of JavaScript true
     vscode_settings = {
         "files.watcherExclude": {
             "**/output-directory/**": True,
@@ -643,37 +456,17 @@ WantedBy=multi-user.target
     readme_path = f"{TRON_DIR}/README.md"
     with open(readme_path, "w") as f:
         f.write("# TRON Lite Full Node\n\n")
-        f.write("This TRON Lite Full Node was automatically installed via the installation script.\n\n")
-        f.write("## System Requirements\n\n")
-        f.write("- Ubuntu 20.04/22.04 or Debian 10/11\n")
-        f.write("- Minimum 16GB RAM (24GB recommended)\n")
-        f.write("- Minimum 500GB SSD storage space\n")
-        f.write("- Good internet connection (10+ Mbps)\n\n")
+        f.write("Node was automatically installed via installation script.\n\n")
         f.write("## Basic Commands\n\n")
-        f.write("### Node Management\n\n")
-        f.write("#### Check Node Status\n```bash\nsystemctl status tron-node\n```\n\n")
-        f.write("#### Start Node\n```bash\nsystemctl start tron-node\n```\n\n")
-        f.write("#### Stop Node\n```bash\nsystemctl stop tron-node\n```\n\n")
-        f.write("#### Restart Node\n```bash\nsystemctl restart tron-node\n```\n\n")
-        f.write("#### Enable Autostart\n```bash\nsystemctl enable tron-node\n```\n\n")
-        f.write("### Monitoring\n\n")
-        f.write("#### Check Running Processes\n```bash\nps aux | grep [F]ullNode\n```\n\n")
-        f.write("#### Check Node Information\n```bash\ncurl http://127.0.0.1:8090/wallet/getnodeinfo\n```\n\n")
-        f.write("#### Check Current Block\n```bash\ncurl http://127.0.0.1:8090/wallet/getnowblock\n```\n\n")
-        f.write("#### View Logs\n```bash\njournalctl -u tron-node -f\n```\n\n")
-        f.write("#### View Last 100 Log Lines\n```bash\njournalctl -u tron-node -n 100\n```\n\n")
-        f.write("#### View Logs for the Last Hour\n```bash\njournalctl -u tron-node --since \"1 hour ago\"\n```\n\n")
-        f.write("### Manual Control\n\n")
-        f.write("#### Manual Node Start (if needed)\n```bash\ncd /home/java-tron\nchmod +x last-node-start.sh\nnohup bash last-node-start.sh &> /dev/null &\n```\n\n")
-        f.write("## Troubleshooting\n\n")
-        f.write("### Node Not Starting\n1. Check system resources: `free -h` and `df -h`\n")
-        f.write("2. Check logs: `journalctl -u tron-node -n 100`\n")
-        f.write("3. Verify Java version: `java -version` (should be 1.8.x)\n")
-        f.write("4. Check configuration file for errors\n\n")
-        f.write("### Synchronization Issues\n1. Verify network connectivity\n")
-        f.write("2. Check if your port 18888 is open for external connections\n")
-        f.write("3. Monitor sync progress: `curl http://127.0.0.1:8090/wallet/getnodeinfo | grep block`\n")
-        f.write("4. Try restarting the node: `systemctl restart tron-node`\n\n")
+        f.write("### Check Node Status\n```bash\nsystemctl status tron-node\n```\n\n")
+        f.write("### Start Node\n```bash\nsystemctl start tron-node\n```\n\n")
+        f.write("### Stop Node\n```bash\nsystemctl stop tron-node\n```\n\n")
+        f.write("### Restart Node\n```bash\nsystemctl restart tron-node\n```\n\n")
+        f.write("### Check Running Processes\n```bash\nps aux | grep [F]ullNode\n```\n\n")
+        f.write("### Check Node Information\n```bash\ncurl http://127.0.0.1:8090/wallet/getnodeinfo\n```\n\n")
+        f.write("### Check Current Block\n```bash\ncurl http://127.0.0.1:8090/wallet/getnowblock\n```\n\n")
+        f.write("### View Logs\n```bash\njournalctl -u tron-node -f\n```\n\n")
+        f.write("### Manual Node Start (if needed)\n```bash\ncd /home/java-tron\nchmod +x last-node-start.sh\nnohup bash last-node-start.sh &> /dev/null &\n```\n")
     
     print_success("Configuration files created")
 
@@ -737,7 +530,6 @@ def cleanup_installation_files():
         dst_log = "/var/log/tron-installation.log"
         if os.path.exists(src_log):
             shutil.copy2(src_log, dst_log)
-            print_success(f"Installation log copied to {dst_log}")
     except Exception as e:
         print_warning(f"Failed to move log file: {str(e)}")
     
@@ -746,16 +538,6 @@ def cleanup_installation_files():
 def run_as_daemon():
     """Fork the process and run in background."""
     print("Starting TRON node installation in background mode...")
-    
-    # Test log file access
-    log_file = '/var/log/tron-background-install.log'
-    try:
-        with open(log_file, 'a') as test:
-            test.write("Testing log file access...\n")
-    except PermissionError:
-        # Fall back to home directory if /var/log is not writable
-        log_file = os.path.join(HOME_DIR, 'tron-background-install.log')
-        print(f"Cannot write to /var/log, using {log_file} instead")
     
     try:
         # Double fork to prevent zombie processes
@@ -779,7 +561,7 @@ def run_as_daemon():
             # Exit second parent
             print(f"Daemon process started with PID {pid}")
             print("Installation will continue in background.")
-            print(f"Check progress with: tail -f {log_file}")
+            print("Check progress with: tail -f /var/log/tron-background-install.log")
             sys.exit(0)
     except OSError as e:
         print_error(f"Fork #2 failed: {e}")
@@ -789,7 +571,7 @@ def run_as_daemon():
     sys.stdout.flush()
     sys.stderr.flush()
     
-    with open(log_file, 'a+') as log:
+    with open('/var/log/tron-background-install.log', 'a+') as log:
         os.dup2(log.fileno(), sys.stdout.fileno())
         os.dup2(log.fileno(), sys.stderr.fileno())
 
@@ -821,10 +603,6 @@ def main():
         # Configure Java
         configure_java()
         
-        # Changed order: download and extract database first, then build
-        # This ensures we don't waste time building if download fails
-        download_and_extract_db()
-        
         # Clone and build java-tron
         clone_and_build_java_tron()
         
@@ -833,6 +611,9 @@ def main():
         
         # Create config files
         create_config_files()
+        
+        # Download and extract database
+        download_and_extract_db()
         
         # Setup systemd
         setup_systemd()
